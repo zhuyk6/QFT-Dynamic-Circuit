@@ -17,3 +17,8 @@ dependencies = [
 dev = [
     "ipykernel>=6.30.1",
 ]
+
+[tool.mypy]
+mypy_path = "src"
+ignore_missing_imports = true
+plugins = ["numpy.typing.mypy_plugin"]
