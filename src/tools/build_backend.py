@@ -1,13 +1,14 @@
-import tomllib
 from pathlib import Path
 from typing import NotRequired, TypedDict
 
+import tomllib
 from qiskit.circuit import Delay, IfElseOp, Parameter
 from qiskit.circuit.library import (
     CZGate,
     Measure,
     RZGate,
     SXGate,
+    XGate,
 )
 from qiskit.providers.fake_provider import GenericBackendV2
 from qiskit.transpiler import (
@@ -105,6 +106,12 @@ def _build_target(coupling_map: CouplingMap, hardware_config: HardwareConfig):
     rz_props = InstructionProperties(duration=0.0, error=0.0)  # virtual Rz gate
     target.add_instruction(
         RZGate(Parameter("theta")), {(q,): rz_props for q in range(n_qubits)}
+    )
+
+    x_props = InstructionProperties(duration=2 * t_single_gate, error=2 * e_single_gate)
+    target.add_instruction(
+        XGate(),
+        {(q,): x_props for q in range(n_qubits)},
     )
 
     # Add two-qubit gates
