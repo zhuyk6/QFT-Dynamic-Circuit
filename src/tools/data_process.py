@@ -20,3 +20,14 @@ def calc_tvd(ideal_prob: dict[int, float], noisy_counts: dict[int, int]) -> floa
         tvd_sum += abs(p_ideal - p_noisy)
 
     return 0.5 * tvd_sum
+
+
+def calc_fidelity(p: dict[int, float], q: dict[int, float]) -> float:
+    """
+    Calculate the fidelity between two probability distributions.
+
+    fidelity(p, q) = sum(sqrt(p_i * q_i))^2
+    """
+    union_keys: set[int] = set(p.keys()) | set(q.keys())
+    fidelity_sum = sum((p.get(k, 0.0) * q.get(k, 0.0)) ** 0.5 for k in union_keys)
+    return fidelity_sum**2
