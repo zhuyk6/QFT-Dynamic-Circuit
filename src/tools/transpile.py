@@ -1,9 +1,15 @@
 from qiskit import QuantumCircuit
-from qiskit.circuit import IfElseOp
+from qiskit.circuit import Delay, IfElseOp
+from qiskit.circuit.library import Measure
 from qiskit.converters import circuit_to_dag
 from qiskit.dagcircuit import DAGCircuit
-from qiskit.transpiler import PassManager
+from qiskit.providers.fake_provider import GenericBackendV2
+from qiskit.transpiler import PassManager, generate_preset_pass_manager
 from qiskit.transpiler.basepasses import TransformationPass
+from qiskit_ibm_runtime.transpiler.passes.scheduling import (
+    ASAPScheduleAnalysis,
+    PadDelay,
+)
 
 
 class UnrollIfTrue(TransformationPass):
@@ -53,4 +59,74 @@ def unroll_if_true(circuit: QuantumCircuit) -> QuantumCircuit:
     """
 
     pm = PassManager(UnrollIfTrue())
+    return pm.run(circuit)
+
+
+def generate_pass_manager(backend: GenericBackendV2) -> PassManager:
+    """Generate the pass manager that supports dynamic circuit.
+
+    It will perform the following transformations:
+    - Decompose gates
+    - No routing
+    - Initial layout is just 0, 1, 2, ...
+    - Schedule the circuit with:
+        - ASAP scheduling
+        - Padding delays according to the backend's timing.
+
+    Args:
+        backend (GenericBackendV2): Given backend.
+
+    Returns:
+        PassManager: The generated pass manager.
+    """
+    num_qubits = backend.num_qubits
+
+    pm: PassManager = generate_preset_pass_manager(
+        optimization_level=3,
+        backend=backend,
+        initial_layout=list(range(num_qubits)),
+        routing_method="none",
+    )
+    durations = backend.target.durations()
+    pm.scheduling = PassManager(  # type: ignore
+        [
+            ASAPScheduleAnalysis(durations),
+            PadDelay(durations),
+        ]
+    )
+
+    return pm
+
+
+class DelayMeasurement(TransformationPass):
+    """A transpiler pass that inserts a Delay right before each Measure."""
+
+    def __init__(self, delay_time: float):
+        super().__init__()
+        self.delay_time = delay_time
+
+    def run(self, dag: DAGCircuit) -> DAGCircuit:
+        # Build a new DAG and copy all ops in topological order.
+        # For each Measure op, insert Delay on its qubit(s) first.
+        new_dag = dag.copy_empty_like()
+
+        for node in dag.topological_op_nodes():
+            if isinstance(node.op, Measure):
+                for qarg in node.qargs:
+                    new_dag.apply_operation_back(
+                        Delay(self.delay_time, unit="s"),
+                        qargs=(qarg,),
+                        check=True,
+                    )
+
+            new_dag.apply_operation_back(node.op, qargs=node.qargs, cargs=node.cargs)
+
+        return new_dag
+
+
+def add_delay_before_measurement(
+    circuit: QuantumCircuit, delay_time: float
+) -> QuantumCircuit:
+    """Add a delay before each measurement in the given circuit."""
+    pm = PassManager([DelayMeasurement(delay_time)])
     return pm.run(circuit)
