@@ -108,11 +108,11 @@ def _build_target(coupling_map: CouplingMap, hardware_config: HardwareConfig):
         RZGate(Parameter("theta")), {(q,): rz_props for q in range(n_qubits)}
     )
 
-    x_props = InstructionProperties(duration=2 * t_single_gate, error=2 * e_single_gate)
-    target.add_instruction(
-        XGate(),
-        {(q,): x_props for q in range(n_qubits)},
-    )
+    # x_props = InstructionProperties(duration=2 * t_single_gate, error=2 * e_single_gate)
+    # target.add_instruction(
+    #     XGate(),
+    #     {(q,): x_props for q in range(n_qubits)},
+    # )
 
     # Add two-qubit gates
     cz_props = InstructionProperties(duration=t_cz_gate, error=e_two_gate)

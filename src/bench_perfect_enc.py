@@ -5,6 +5,7 @@ Here we compare two methods:
 - Delayed circuit: using a delay for measurement encoding, consider a modified readout error.
 """
 
+import argparse
 import json
 from pathlib import Path
 from pprint import pprint
@@ -25,7 +26,8 @@ from tools.build_circuits import (
 from tools.data_process import calc_tvd
 from tools.transpile import add_delay_before_measurement, generate_pass_manager
 
-ROOT: Path = Path.cwd()
+# Root path of the project, used for loading data files.
+ROOT = Path.cwd()
 
 
 def build_circuit(
@@ -170,19 +172,23 @@ def benchmark(
     return tvd
 
 
-def main():
-    num_qubits = 12
+def run_benchmark_suite(
+    num_qubits: int,
+    batch_size_list: list[int],
+    delay_time: float,
+    num_shots: int,
+    prob_meas1_prep0: float,
+    prob_meas0_prep1: float,
+    output_filename: Path,
+    auto_suffix: bool = True,
+) -> Path:
+    """Run all benchmark variants and save results to disk.
 
-    delay_time = 100e-9  # 100 ns
-
-    # modified readout error
-    prob_meas1_prep0 = 0.001
-    prob_meas0_prep1 = 0.002
-
-    # save results
+    Returns:
+        Path: the actual output file path.
+    """
     dict_tvd_batch_method: dict[int, dict[str, float]] = {}
 
-    batch_size_list = [1, 2, 3]
     for batch_size in batch_size_list:
         if batch_size not in dict_tvd_batch_method:
             dict_tvd_batch_method[batch_size] = {}
@@ -191,16 +197,19 @@ def main():
             num_qubits=num_qubits,
             batch_size=batch_size,
             delay_time=None,
+            num_shots=num_shots,
         )
         dict_tvd_batch_method[batch_size]["enc perfect"] = benchmark(
             num_qubits=num_qubits,
             batch_size=batch_size,
             delay_time=delay_time,
+            num_shots=num_shots,
         )
         dict_tvd_batch_method[batch_size]["enc modify"] = benchmark(
             num_qubits=num_qubits,
             batch_size=batch_size,
             delay_time=delay_time,
+            num_shots=num_shots,
             prob_meas0_prep1=prob_meas0_prep1,
             prob_meas1_prep0=prob_meas1_prep0,
         )
@@ -209,14 +218,20 @@ def main():
     pprint(dict_tvd_batch_method)
 
     # save results to disk
-    filename = ROOT / "data" / "opt_circuits" / "bench_enc.json"
-    # if file exists, increase suffix
-    counter = 0
-    while filename.exists():
-        counter += 1
-        filename = ROOT / "data" / "opt_circuits" / f"bench_enc_{counter}.json"
+    filename = output_filename
+    if auto_suffix:
+        # If file exists, increase suffix.
+        counter = 0
+        while filename.exists():
+            counter += 1
+            filename = filename.with_name(f"{filename.stem}_{counter}{filename.suffix}")
+
+    filename.parent.mkdir(parents=True, exist_ok=True)
     with open(filename, "w") as f_out:
         json.dump(dict_tvd_batch_method, f_out, indent=4)
+
+    print(f"Saved benchmark results to: {filename}")
+    return filename
 
 
 def plot_result(
@@ -225,7 +240,8 @@ def plot_result(
 ) -> None:
     # Load results
     with open(results_filename, "r") as f_in:
-        dict_tvd_batch_method: dict[int, dict[str, float]] = json.load(f_in)
+        raw_dict: dict[str, dict[str, float]] = json.load(f_in)
+    dict_tvd_batch_method = {int(k): v for k, v in raw_dict.items()}
 
     # Plot results
     # Using histogram:
@@ -252,14 +268,100 @@ def plot_result(
     ax.set_xticklabels(map(str, batch_sizes))
     ax.legend()
 
+    savefig_filename.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(savefig_filename)
+    print(f"Saved figure to: {savefig_filename}")
+
+
+def parse_batch_sizes(value: str) -> list[int]:
+    """Parse comma-separated batch sizes such as "1,2,3"."""
+    try:
+        parsed = [int(x.strip()) for x in value.split(",") if x.strip()]
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"Invalid batch size list: {value}") from exc
+    if not parsed:
+        raise argparse.ArgumentTypeError("Batch size list cannot be empty")
+    if any(v <= 0 for v in parsed):
+        raise argparse.ArgumentTypeError("Batch sizes must be positive integers")
+    return parsed
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Benchmark and plot measurement-encoding results."
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # "run" command for running benchmark and saving JSON results
+    run_parser = subparsers.add_parser("run", help="Run benchmark and save JSON")
+    run_parser.add_argument("--num-qubits", type=int, default=12)
+    run_parser.add_argument(
+        "--batch-sizes",
+        type=parse_batch_sizes,
+        default=[1, 2, 3],
+        help='Comma-separated batch sizes, e.g. "1,2,3"',
+    )
+    run_parser.add_argument(
+        "--delay-time",
+        type=float,
+        default=100e-9,
+        help="Delay time before measurement in seconds",
+    )
+    run_parser.add_argument("--num-shots", type=int, default=10**5)
+    run_parser.add_argument("--prob-meas1-prep0", type=float, default=0.001)
+    run_parser.add_argument("--prob-meas0-prep1", type=float, default=0.002)
+    run_parser.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        help="Output JSON file path",
+    )
+    run_parser.add_argument(
+        "--no-auto-suffix",
+        action="store_true",
+        help="Overwrite output path instead of auto-incrementing suffix",
+    )
+
+    # "plot" command for plotting figure from JSON results
+    plot_parser = subparsers.add_parser("plot", help="Plot benchmark JSON as figure")
+    plot_parser.add_argument(
+        "--results",
+        type=Path,
+        required=True,
+        help="Input JSON results file path",
+    )
+    plot_parser.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        help="Output figure file path",
+    )
+
+    return parser
+
+
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+
+    match args.command:
+        case "run":
+            run_benchmark_suite(
+                num_qubits=args.num_qubits,
+                batch_size_list=args.batch_sizes,
+                delay_time=args.delay_time,
+                num_shots=args.num_shots,
+                prob_meas1_prep0=args.prob_meas1_prep0,
+                prob_meas0_prep1=args.prob_meas0_prep1,
+                output_filename=args.output,
+                auto_suffix=not args.no_auto_suffix,
+            )
+        case "plot":
+            plot_result(args.results, args.output)
+        case cmd:
+            raise ValueError(f"Unknown command: {cmd}")
 
 
 if __name__ == "__main__":
-    print(f"Project root: {ROOT}")
-    # main()
-
-    plot_result(
-        ROOT / "data" / "opt_circuits" / "bench_enc.json",
-        ROOT / "data" / "opt_circuits" / "bench_enc.png",
-    )
+    print(f"Current working directory: {ROOT}")
+    main()
