@@ -143,7 +143,9 @@ def _build_target(coupling_map: CouplingMap, hardware_config: HardwareConfig):
     return target
 
 
-def build_backend(coupling_map: CouplingMap, hardware_config: HardwareConfig):
+def build_backend(
+    coupling_map: CouplingMap, hardware_config: HardwareConfig
+) -> GenericBackendV2:
     target = _build_target(coupling_map, hardware_config)
 
     basis_gates = list(set(target.operation_names) - {"if_else"})
