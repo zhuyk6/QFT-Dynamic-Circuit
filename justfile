@@ -11,3 +11,7 @@ fmt:
 # Check formatting without modifying files.
 fmt-check:
 	uvx ruff format --check .
+
+# Test the project with pytest.
+test:
+	uv run pytest

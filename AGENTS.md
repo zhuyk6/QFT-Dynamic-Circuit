@@ -29,4 +29,5 @@ This project uses `uv` for dependency management and follow specific coding stan
 
 Refer to the [justfile](justfile) for reusable commands:
 - `just fmt`: Formats the codebase.
+- `just test`: Tests the code.
 - (Check `justfile` for other available commands)
