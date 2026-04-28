@@ -5,12 +5,12 @@
 
 # Format all Python files with Ruff.
 fmt:
-	uvx ruff check . --select I --fix
-	uvx ruff format .
+	uv run ruff check . --select I --fix
+	uv run ruff format .
 
 # Check formatting without modifying files.
 fmt-check:
-	uvx ruff format --check .
+	uv run ruff format --check .
 
 # Test the project with pytest.
 test:
