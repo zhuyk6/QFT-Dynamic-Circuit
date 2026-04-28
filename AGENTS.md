@@ -16,6 +16,22 @@ This project uses `uv` for dependency management and follow specific coding stan
 - Every function **must** have a docstring.
 - Public APIs must include detailed descriptions of parameters, their types, and return values.
 
+Example:
+```python
+def sum_function(a: list[int], b: int) -> int:
+    """Get the sum of a list and an integer.
+
+    Args:
+        a (list[int]): Input list.
+        b (int): Value to add to the sum.
+
+    Returns:
+        int: The total sum.
+    """
+    sum_a: int = sum(a)  # sum of the list
+    return sum_a + b
+```
+
 ### 2. Type Hinting
 - **MANDATORY**: All variable definitions and function signatures must include type hints.
 - **NO `Any`**: The use of `Any` is strictly prohibited. If it is absolutely unavoidable, you must include a comment explaining why.
