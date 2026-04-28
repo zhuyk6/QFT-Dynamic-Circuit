@@ -1,7 +1,7 @@
+import tomllib
 from pathlib import Path
 from typing import NotRequired, TypedDict
 
-import tomllib
 from qiskit.circuit import Delay, IfElseOp, Parameter
 from qiskit.circuit.library import (
     CZGate,
