@@ -1,6 +1,6 @@
 """Unit tests for strict Shor post-processing primitives."""
 
-from shor_benchmark.strict_postprocess import (
+from qft_dynamic.shor_benchmark.strict_postprocess import (
     continued_fraction_denominator,
     strict_predict_order,
 )

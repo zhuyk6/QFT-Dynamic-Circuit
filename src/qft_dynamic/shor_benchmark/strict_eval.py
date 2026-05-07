@@ -3,9 +3,9 @@
 import logging
 import random
 
-from shor_benchmark.protocols import ConditionalSampler, StrictPostprocessor
-from shor_benchmark.samplers import ArithmeticIdealEstimator
-from shor_benchmark.types import (
+from .protocols import ConditionalSampler, StrictPostprocessor
+from .samplers import ArithmeticIdealEstimator
+from .types import (
     ArithmeticCurveResult,
     BenchmarkInstance,
     StrictCurveResult,

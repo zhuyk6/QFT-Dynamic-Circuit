@@ -9,19 +9,19 @@ import argparse
 import logging
 from pathlib import Path
 
-from shor_benchmark.samplers import (
+from qft_dynamic.shor_benchmark.samplers import (
     ArithmeticIdealEstimator,
     FiniteQIdealSampler,
     HistogramSampler,
     UniformSampler,
 )
-from shor_benchmark.schemas import StrictBenchmarkResultFileModel
-from shor_benchmark.strict_eval import (
+from qft_dynamic.shor_benchmark.schemas import StrictBenchmarkResultFileModel
+from qft_dynamic.shor_benchmark.strict_eval import (
     evaluate_arithmetic_curve,
     evaluate_strict_curve,
 )
-from shor_benchmark.strict_postprocess import DefaultStrictPostprocessor
-from shor_benchmark.types import (
+from qft_dynamic.shor_benchmark.strict_postprocess import DefaultStrictPostprocessor
+from qft_dynamic.shor_benchmark.types import (
     ArithmeticCurveResult,
     BenchmarkInstance,
     CombinedCurveResult,

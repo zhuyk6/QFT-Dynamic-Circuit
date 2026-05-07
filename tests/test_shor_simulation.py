@@ -8,15 +8,18 @@ import pytest
 from qiskit.quantum_info import Statevector
 
 from bench_shor_strict import run_strict_benchmark
-from shor_benchmark.samplers import HistogramSampler
-from shor_benchmark.schemas import HistogramFileModel, StrictBenchmarkResultFileModel
-from shor_benchmark.simulation import (
+from qft_dynamic.shor_benchmark.samplers import HistogramSampler
+from qft_dynamic.shor_benchmark.schemas import (
+    HistogramFileModel,
+    StrictBenchmarkResultFileModel,
+)
+from qft_dynamic.shor_benchmark.simulation import (
     prepare_forward_qft_phase_state,
     save_histograms,
     simulate_histograms_for_instance,
 )
-from shor_benchmark.types import BenchmarkInstance
-from tools.build_circuits import qft_unitary
+from qft_dynamic.shor_benchmark.types import BenchmarkInstance
+from qft_dynamic.tools.build_circuits import qft_unitary
 
 
 def test_phase_state_matches_swapless_qft_convention_for_aligned_case() -> None:

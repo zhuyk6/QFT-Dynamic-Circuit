@@ -2,13 +2,13 @@
 
 import random
 
-from shor_benchmark.samplers import ArithmeticIdealEstimator, UniformSampler
-from shor_benchmark.strict_eval import (
+from qft_dynamic.shor_benchmark.samplers import ArithmeticIdealEstimator, UniformSampler
+from qft_dynamic.shor_benchmark.strict_eval import (
     evaluate_arithmetic_curve,
     evaluate_strict_metrics_for_k,
 )
-from shor_benchmark.strict_postprocess import DefaultStrictPostprocessor
-from shor_benchmark.types import BenchmarkInstance
+from qft_dynamic.shor_benchmark.strict_postprocess import DefaultStrictPostprocessor
+from qft_dynamic.shor_benchmark.types import BenchmarkInstance
 
 
 def test_strict_metrics_probability_mass_is_conserved() -> None:

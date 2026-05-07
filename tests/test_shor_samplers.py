@@ -3,13 +3,13 @@
 import random
 from collections import Counter
 
-from shor_benchmark.samplers import (
+from qft_dynamic.shor_benchmark.samplers import (
     ArithmeticIdealEstimator,
     FiniteQIdealSampler,
     HistogramSampler,
     finite_q_ideal_probability,
 )
-from shor_benchmark.types import BenchmarkInstance
+from qft_dynamic.shor_benchmark.types import BenchmarkInstance
 
 
 def _empirical_distribution_for_sampler(

@@ -15,8 +15,11 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-from shor_benchmark.samplers import FiniteQIdealSampler, finite_q_ideal_probability
-from shor_benchmark.types import BenchmarkInstance
+from qft_dynamic.shor_benchmark.samplers import (
+    FiniteQIdealSampler,
+    finite_q_ideal_probability,
+)
+from qft_dynamic.shor_benchmark.types import BenchmarkInstance
 
 
 def estimate_empirical_distribution(

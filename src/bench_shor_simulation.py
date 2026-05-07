@@ -5,8 +5,11 @@ import logging
 import warnings
 from pathlib import Path
 
-from shor_benchmark.simulation import save_histograms, simulate_histograms_for_instance
-from shor_benchmark.types import BenchmarkInstance
+from qft_dynamic.shor_benchmark.simulation import (
+    save_histograms,
+    simulate_histograms_for_instance,
+)
+from qft_dynamic.shor_benchmark.types import BenchmarkInstance
 
 logger = logging.getLogger(__name__)
 

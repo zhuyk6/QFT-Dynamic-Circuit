@@ -4,7 +4,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from shor_benchmark.types import BenchmarkInstance, CombinedCurveResult
+from .types import BenchmarkInstance, CombinedCurveResult
 
 
 class SimulationMetadataModel(BaseModel):

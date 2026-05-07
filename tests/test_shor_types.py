@@ -2,7 +2,7 @@
 
 import pytest
 
-from shor_benchmark.types import BenchmarkInstance
+from qft_dynamic.shor_benchmark.types import BenchmarkInstance
 
 
 def test_benchmark_instance_accepts_valid_order_finding_instance() -> None:

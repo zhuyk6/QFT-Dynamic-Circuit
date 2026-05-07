@@ -32,10 +32,10 @@ from matplotlib.artist import Artist
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
-from shor_benchmark.samplers import finite_q_ideal_probability
-from shor_benchmark.schemas import HistogramFileModel
-from shor_benchmark.simulation import simulate_histograms_for_instance
-from shor_benchmark.types import BenchmarkInstance
+from qft_dynamic.shor_benchmark.samplers import finite_q_ideal_probability
+from qft_dynamic.shor_benchmark.schemas import HistogramFileModel
+from qft_dynamic.shor_benchmark.simulation import simulate_histograms_for_instance
+from qft_dynamic.shor_benchmark.types import BenchmarkInstance
 
 NUMERICAL_ZERO_TOLERANCE: float = 1e-15
 

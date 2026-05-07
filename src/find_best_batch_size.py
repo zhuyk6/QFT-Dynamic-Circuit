@@ -24,13 +24,13 @@ from qiskit_ibm_runtime.transpiler.passes.scheduling import (
     PadDelay,
 )
 
-from tools.build_backend import build_backend, load_hardware_config
-from tools.build_circuits import (
+from qft_dynamic.tools.build_backend import build_backend, load_hardware_config
+from qft_dynamic.tools.build_circuits import (
     prepare_circular_state_circuit,
     tile_transpiled_circuit,
 )
-from tools.data_process import calc_tvd
-from tools.transpile import unroll_if_true
+from qft_dynamic.tools.data_process import calc_tvd
+from qft_dynamic.tools.transpile import unroll_if_true
 
 
 def calculate_runtime(

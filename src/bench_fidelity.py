@@ -28,9 +28,9 @@ from qiskit_aer import AerSimulator
 from qiskit_aer.noise import NoiseModel
 from qiskit_ibm_runtime import Sampler
 
-from tools.build_backend import build_backend, load_hardware_config
-from tools.build_circuits import tile_transpiled_circuit
-from tools.transpile import generate_pass_manager
+from qft_dynamic.tools.build_backend import build_backend, load_hardware_config
+from qft_dynamic.tools.build_circuits import tile_transpiled_circuit
+from qft_dynamic.tools.transpile import generate_pass_manager
 
 ROOT = Path.cwd()
 

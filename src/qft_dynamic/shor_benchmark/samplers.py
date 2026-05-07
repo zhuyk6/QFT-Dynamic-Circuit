@@ -15,8 +15,8 @@ from math import cos, pi, sin
 from pathlib import Path
 from typing import Literal
 
-from shor_benchmark.schemas import HistogramFileModel
-from shor_benchmark.types import BenchmarkInstance
+from .schemas import HistogramFileModel
+from .types import BenchmarkInstance
 
 logger: logging.Logger = logging.getLogger(__name__)
 

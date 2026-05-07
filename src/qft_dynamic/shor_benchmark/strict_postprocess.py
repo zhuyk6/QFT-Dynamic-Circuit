@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 from math import lcm
 
-from shor_benchmark.types import BenchmarkInstance
+from .types import BenchmarkInstance
 
 logger = logging.getLogger(__name__)
 

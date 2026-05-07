@@ -1,19 +1,19 @@
 """Shor benchmark package."""
 
-from shor_benchmark.config import ShorBenchmarkPaths, resolve_shor_benchmark_paths
-from shor_benchmark.samplers import (
+from .config import ShorBenchmarkPaths, resolve_shor_benchmark_paths
+from .samplers import (
     ArithmeticIdealEstimator,
     FiniteQIdealSampler,
     HistogramSampler,
     UniformSampler,
 )
-from shor_benchmark.schemas import HistogramFileModel, StrictBenchmarkResultFileModel
-from shor_benchmark.strict_eval import (
+from .schemas import HistogramFileModel, StrictBenchmarkResultFileModel
+from .strict_eval import (
     evaluate_arithmetic_curve,
     evaluate_strict_curve,
 )
-from shor_benchmark.strict_postprocess import DefaultStrictPostprocessor
-from shor_benchmark.types import (
+from .strict_postprocess import DefaultStrictPostprocessor
+from .types import (
     ArithmeticCurveResult,
     BenchmarkInstance,
     CombinedCurveResult,

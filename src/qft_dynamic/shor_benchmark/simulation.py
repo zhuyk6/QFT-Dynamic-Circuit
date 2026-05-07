@@ -10,12 +10,13 @@ from qiskit_aer import AerSimulator
 from qiskit_aer.noise import NoiseModel
 from qiskit_ibm_runtime import Sampler
 
-from shor_benchmark.config import ShorBenchmarkPaths, resolve_shor_benchmark_paths
-from shor_benchmark.schemas import HistogramFileModel, SimulationMetadataModel
-from shor_benchmark.types import BenchmarkInstance
-from tools.build_backend import build_backend, load_hardware_config
-from tools.build_circuits import tile_transpiled_circuit
-from tools.transpile import generate_pass_manager
+from qft_dynamic.tools.build_backend import build_backend, load_hardware_config
+from qft_dynamic.tools.build_circuits import tile_transpiled_circuit
+from qft_dynamic.tools.transpile import generate_pass_manager
+
+from .config import ShorBenchmarkPaths, resolve_shor_benchmark_paths
+from .schemas import HistogramFileModel, SimulationMetadataModel
+from .types import BenchmarkInstance
 
 
 def build_qft_circuit(

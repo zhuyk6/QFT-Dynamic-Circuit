@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from pytest import MonkeyPatch
 
-from shor_benchmark.config import resolve_shor_benchmark_paths
+from qft_dynamic.shor_benchmark.config import resolve_shor_benchmark_paths
 
 
 def test_resolve_shor_benchmark_paths_from_dotenv(
