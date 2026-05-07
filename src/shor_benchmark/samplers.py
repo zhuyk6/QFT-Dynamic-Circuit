@@ -1,14 +1,24 @@
-"""Baseline samplers and arithmetic-ideal estimator for strict benchmark."""
+"""Samplers and arithmetic-ideal estimator for strict benchmark.
+
+This module contains:
+- `FiniteQIdealSampler`: conditional sampler from finite-Q ideal distributions.
+- `ArithmeticIdealEstimator`: closed-form arithmetic-ideal estimator.
+- `UniformSampler`: uniform random sampler.
+- `HistogramSampler`: conditional sampler from histogram data.
+"""
 
 import logging
 import random
+from collections import Counter
 from dataclasses import dataclass
 from math import cos, pi, sin
+from pathlib import Path
 from typing import Literal
 
+from shor_benchmark.schemas import HistogramFileModel
 from shor_benchmark.types import BenchmarkInstance
 
-LOGGER: logging.Logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 def finite_q_ideal_probability(y: int, s: int, instance: BenchmarkInstance) -> float:
@@ -114,7 +124,7 @@ class FiniteQIdealSampler:
         sampled_bit: int = 0 if rng.random() < probability_zero else 1
         return sampled_bit
 
-    def _sample_y_by_bitwise_iqft(self, s: int, rng: random.Random) -> int:
+    def _sample_y_by_bitwise(self, s: int, rng: random.Random) -> int:
         """Sample y using the semiclassical inverse-QFT measurement rule.
 
         Args:
@@ -166,7 +176,7 @@ class FiniteQIdealSampler:
             case "enumerate":
                 if self.instance.q > 2**10:
                     q_value: int = self.instance.q
-                    LOGGER.warning(
+                    logger.warning(
                         "Enumeration-based finite-Q sampling with Q=%d may be slow "
                         "and memory-intensive; consider sample_method='bitwise' "
                         "for larger instances.",
@@ -175,9 +185,94 @@ class FiniteQIdealSampler:
 
                 return self._sample_y_by_enumeration(s=s, rng=rng)
             case "bitwise":
-                return self._sample_y_by_bitwise_iqft(s=s, rng=rng)
+                return self._sample_y_by_bitwise(s=s, rng=rng)
             case method:
                 raise ValueError(f"unsupported finite-Q sample method: {method}")
+
+
+@dataclass(frozen=True)
+class HistogramSampler:
+    """Conditional sampler from experimental or simulation histogram data.
+
+    Given pre-collected measurement data (a histogram per phase label ``s``),
+    this sampler draws ``y`` from the empirical distribution defined by those
+    histograms via ``random.choices``.
+
+    Args:
+        instance: Benchmark instance data.
+        histograms: Mapping from phase label ``s`` to a ``Counter`` of measured
+            ``y`` values (raw shot counts).
+    """
+
+    instance: BenchmarkInstance
+    histograms: dict[int, Counter[int]]
+
+    @classmethod
+    def from_file(
+        cls,
+        histogram_path: Path,
+        instance: BenchmarkInstance | None = None,
+    ) -> "HistogramSampler":
+        """Load histogram data from a JSON file.
+
+        Args:
+            histogram_path: Path to the histogram JSON file.
+            instance: Optional benchmark instance to validate against the file.
+
+        Returns:
+            HistogramSampler initialized from the file contents.
+
+        Raises:
+            ValueError: If the file instance is inconsistent with ``instance``.
+        """
+
+        histogram_file: HistogramFileModel = HistogramFileModel.load(histogram_path)
+        loaded_instance: BenchmarkInstance = histogram_file.instance
+        if instance is not None and loaded_instance != instance:
+            raise ValueError(
+                "histogram file instance does not match requested instance"
+            )
+
+        loaded_histograms: dict[int, Counter[int]] = {}
+        s_value: int
+        y_counts: dict[int, int]
+        for s_value, y_counts in histogram_file.histograms.items():
+            loaded_histograms[s_value] = Counter(y_counts)
+
+        sampler: HistogramSampler = cls(
+            instance=loaded_instance,
+            histograms=loaded_histograms,
+        )
+        return sampler
+
+    def __post_init__(self) -> None:
+        """Validate that histograms cover all phase labels in [0, r - 1]."""
+
+        missing: list[int] = []
+        for s in range(self.instance.r):
+            if s not in self.histograms:
+                missing.append(s)
+        if missing:
+            raise ValueError(f"histograms missing phase labels: {missing}")
+        for s, hist in self.histograms.items():
+            if not hist:
+                raise ValueError(f"histogram for s={s} is empty")
+
+    def sample_y(self, s: int, rng: random.Random) -> int:
+        """Sample y from the histogram for phase label s.
+
+        Args:
+            s: Phase label in [0, r - 1].
+            rng: Random generator.
+
+        Returns:
+            Sampled integer y.
+        """
+
+        hist: Counter[int] = self.histograms[s]
+        population: list[int] = list(hist.keys())
+        weights: list[int] = [count for count in hist.values()]
+        return rng.choices(population=population, weights=weights, k=1)[0]
 
 
 @dataclass(frozen=True)

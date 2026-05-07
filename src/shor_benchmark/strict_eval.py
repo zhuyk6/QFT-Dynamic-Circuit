@@ -2,36 +2,17 @@
 
 import logging
 import random
-from dataclasses import dataclass
 
-from shor_benchmark.baselines import ArithmeticIdealEstimator
 from shor_benchmark.protocols import ConditionalSampler, StrictPostprocessor
-from shor_benchmark.types import BenchmarkInstance, StrictMetrics
+from shor_benchmark.samplers import ArithmeticIdealEstimator
+from shor_benchmark.types import (
+    ArithmeticCurveResult,
+    BenchmarkInstance,
+    StrictCurveResult,
+    StrictMetrics,
+)
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class StrictCurveResult:
-    """Strict benchmark curves for multiple K values."""
-
-    metrics_by_k: dict[int, StrictMetrics]
-
-
-@dataclass(frozen=True)
-class ArithmeticCurveResult:
-    """Arithmetic-ideal strict curve for multiple K values."""
-
-    p_ord_strict_by_k: dict[int, float]
-
-
-@dataclass(frozen=True)
-class CombinedStrictBenchmarkResult:
-    """Combined baseline outputs for strict benchmark."""
-
-    ideal: StrictCurveResult
-    uniform: StrictCurveResult
-    arithmetic: ArithmeticCurveResult
 
 
 def evaluate_strict_metrics_for_k(

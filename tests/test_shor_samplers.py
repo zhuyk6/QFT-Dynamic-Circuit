@@ -1,17 +1,19 @@
 """Unit tests for Shor strict baseline components."""
 
 import random
+from collections import Counter
 
-from shor_benchmark.baselines import (
+from shor_benchmark.samplers import (
     ArithmeticIdealEstimator,
     FiniteQIdealSampler,
+    HistogramSampler,
     finite_q_ideal_probability,
 )
 from shor_benchmark.types import BenchmarkInstance
 
 
 def _empirical_distribution_for_sampler(
-    sampler: FiniteQIdealSampler,
+    sampler: FiniteQIdealSampler | HistogramSampler,
     s: int,
     seed: int,
     num_samples: int,
@@ -160,3 +162,41 @@ def test_finite_q_ideal_sampler_handles_large_m_without_enumerating_q() -> None:
     sampled_y: int = sampler.sample_y(s=1, rng=rng)
 
     assert 0 <= sampled_y < instance.q
+
+
+def test_histogram_sampler():
+    """Histogram sampler should match the closed-form distribution."""
+
+    cnt: Counter[int] = Counter(
+        {
+            0: 1,
+            1: 2,
+            2: 0,
+            3: 1,
+        }
+    )
+
+    instance: BenchmarkInstance = BenchmarkInstance(n=15, a=2, r=4, m=2)
+    histograms: dict[int, Counter[int]] = {s: cnt for s in range(instance.r)}
+    sampler: HistogramSampler = HistogramSampler(
+        instance=instance,
+        histograms=histograms,
+    )
+
+    num_samples: int = 1000
+    empirical: list[float] = _empirical_distribution_for_sampler(
+        sampler=sampler,
+        s=1,
+        seed=321,
+        num_samples=num_samples,
+    )
+    expected: list[float] = [
+        1 / 4,
+        2 / 4,
+        0 / 4,
+        1 / 4,
+    ]
+
+    y_value: int
+    for y_value in range(instance.q):
+        assert abs(empirical[y_value] - expected[y_value]) < 0.02

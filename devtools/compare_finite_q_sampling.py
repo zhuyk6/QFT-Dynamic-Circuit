@@ -15,7 +15,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-from shor_benchmark.baselines import FiniteQIdealSampler, finite_q_ideal_probability
+from shor_benchmark.samplers import FiniteQIdealSampler, finite_q_ideal_probability
 from shor_benchmark.types import BenchmarkInstance
 
 

@@ -64,11 +64,39 @@ class StrictMetrics:
 
 
 @dataclass(frozen=True)
-class ArithmeticStrictPoint:
-    """Arithmetic-ideal strict metric for one K value.
+class StrictCurveResult:
+    """Strict benchmark curve across multiple K values.
 
     Args:
-        p_ord_strict: Closed-form strict success probability.
+        metrics_by_k: Strict metrics indexed by K.
     """
 
-    p_ord_strict: float
+    metrics_by_k: dict[int, StrictMetrics]
+
+
+@dataclass(frozen=True)
+class ArithmeticCurveResult:
+    """Arithmetic-ideal strict curve across multiple K values.
+
+    Args:
+        p_ord_strict_by_k: Closed-form strict success probabilities indexed by K.
+    """
+
+    p_ord_strict_by_k: dict[int, float]
+
+
+@dataclass(frozen=True)
+class CombinedCurveResult:
+    """All reported curve data for one strict benchmark run.
+
+    Args:
+        ideal: Finite-Q ideal baseline curve.
+        uniform: Uniform baseline curve.
+        arithmetic: Arithmetic-ideal baseline curve.
+        simulation: Optional histogram-driven simulation baseline curve.
+    """
+
+    ideal: StrictCurveResult
+    uniform: StrictCurveResult
+    arithmetic: ArithmeticCurveResult
+    simulation: StrictCurveResult | None = None
