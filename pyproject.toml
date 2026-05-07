@@ -23,6 +23,13 @@ dev = [
     "ruff>=0.15.12",
 ]
 
+[build-system]
+requires = ["uv_build>=0.11.9,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "qft_dynamic"
+
 [tool.mypy]
 mypy_path = "src"
 ignore_missing_imports = true
