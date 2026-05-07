@@ -2,7 +2,7 @@
 
 import random
 
-from shor_benchmark.baselines import ArithmeticIdealEstimator, UniformSampler
+from shor_benchmark.samplers import ArithmeticIdealEstimator, UniformSampler
 from shor_benchmark.strict_eval import (
     evaluate_arithmetic_curve,
     evaluate_strict_metrics_for_k,

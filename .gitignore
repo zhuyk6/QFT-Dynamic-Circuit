@@ -11,3 +11,12 @@ wheels/
 
 # VSCode settings
 .vscode/
+
+# Logs
+logs/
+
+# env
+.env
+
+# agents
+.codex

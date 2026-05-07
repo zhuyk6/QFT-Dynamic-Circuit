@@ -1,29 +1,32 @@
 """Strict Shor benchmark runner.
 
 This script computes strict metrics for finite-Q ideal and uniform baselines via
-Monte Carlo, and arithmetic-ideal strict success via closed-form expression.
+Monte Carlo, arithmetic-ideal strict success via closed-form expression, and
+optionally a histogram-driven simulation baseline.
 """
 
 import argparse
-import json
 import logging
-from math import gcd
 from pathlib import Path
 
-from shor_benchmark.baselines import (
+from shor_benchmark.samplers import (
     ArithmeticIdealEstimator,
     FiniteQIdealSampler,
+    HistogramSampler,
     UniformSampler,
 )
+from shor_benchmark.schemas import StrictBenchmarkResultFileModel
 from shor_benchmark.strict_eval import (
-    ArithmeticCurveResult,
-    CombinedStrictBenchmarkResult,
-    StrictCurveResult,
     evaluate_arithmetic_curve,
     evaluate_strict_curve,
 )
 from shor_benchmark.strict_postprocess import DefaultStrictPostprocessor
-from shor_benchmark.types import BenchmarkInstance, StrictMetrics
+from shor_benchmark.types import (
+    ArithmeticCurveResult,
+    BenchmarkInstance,
+    CombinedCurveResult,
+    StrictCurveResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,44 +55,25 @@ def parse_k_list(value: str) -> list[int]:
     return unique_sorted
 
 
-def _strict_curve_to_dict(curve: StrictCurveResult) -> dict[str, dict[str, float]]:
-    """Convert strict curve result to JSON-serializable dict."""
-
-    result: dict[str, dict[str, float]] = {}
-    k_value: int
-    metrics: StrictMetrics
-    for k_value, metrics in sorted(curve.metrics_by_k.items()):
-        result[str(k_value)] = {
-            "p_ord_strict": metrics.p_ord_strict,
-            "p_wrong": metrics.p_wrong,
-            "p_null": metrics.p_null,
-        }
-    return result
-
-
-def _arithmetic_curve_to_dict(curve: ArithmeticCurveResult) -> dict[str, float]:
-    """Convert arithmetic curve result to JSON-serializable dict."""
-
-    result: dict[str, float] = {}
-    k_value: int
-    probability: float
-    for k_value, probability in sorted(curve.p_ord_strict_by_k.items()):
-        result[str(k_value)] = probability
-    return result
-
-
 def run_strict_benchmark(
     instance: BenchmarkInstance,
     k_list: list[int],
     m_mc: int,
     seed: int,
-) -> CombinedStrictBenchmarkResult:
-    """Run strict benchmark for ideal, uniform, and arithmetic baselines."""
+    histogram_path: Path | None = None,
+) -> CombinedCurveResult:
+    """Run strict benchmark for ideal, uniform, arithmetic, and simulation baselines.
 
-    if gcd(instance.a, instance.n) != 1:
-        raise ValueError("a and n must be coprime")
-    if instance.r <= 0:
-        raise ValueError("r must be positive")
+    Args:
+        instance: Benchmark instance.
+        k_list: Sample-count values K.
+        m_mc: Monte Carlo trial count per K.
+        seed: Random seed.
+        histogram_path: Optional JSON file containing per-s histograms.
+
+    Returns:
+        Combined strict benchmark results.
+    """
 
     postprocessor: DefaultStrictPostprocessor = DefaultStrictPostprocessor(
         instance=instance
@@ -121,11 +105,26 @@ def run_strict_benchmark(
         estimator=arithmetic_estimator,
         k_list=k_list,
     )
+    simulation_curve: StrictCurveResult | None = None
+    if histogram_path is not None:
+        simulation_sampler: HistogramSampler = HistogramSampler.from_file(
+            histogram_path=histogram_path,
+            instance=instance,
+        )
+        simulation_curve = evaluate_strict_curve(
+            instance=instance,
+            sampler=simulation_sampler,
+            postprocessor=postprocessor,
+            k_list=k_list,
+            m_mc=m_mc,
+            seed=seed + 2,
+        )
 
-    combined: CombinedStrictBenchmarkResult = CombinedStrictBenchmarkResult(
+    combined: CombinedCurveResult = CombinedCurveResult(
         ideal=ideal_curve,
         uniform=uniform_curve,
         arithmetic=arithmetic_curve,
+        simulation=simulation_curve,
     )
     return combined
 
@@ -172,6 +171,12 @@ def main() -> None:
         help="Output JSON path",
     )
     parser.add_argument(
+        "--simulation-histograms",
+        type=Path,
+        default=None,
+        help="Optional JSON file with per-s simulation histograms",
+    )
+    parser.add_argument(
         "-v", "--verbose", action="store_true", help="Enable debug logging"
     )
 
@@ -187,40 +192,29 @@ def main() -> None:
         m=args.m,
     )
 
-    result: CombinedStrictBenchmarkResult = run_strict_benchmark(
+    result: CombinedCurveResult = run_strict_benchmark(
         instance=instance,
         k_list=args.k_list,
         m_mc=args.m_mc,
         seed=args.seed,
+        histogram_path=args.simulation_histograms,
     )
 
-    output_payload: dict[str, object] = {
-        "instance": {
-            "n": instance.n,
-            "a": instance.a,
-            "r": instance.r,
-            "m": instance.m,
-            "q": instance.q,
-        },
-        "k_list": args.k_list,
-        "m_mc": args.m_mc,
-        "seed": args.seed,
-        "baselines": {
-            "ideal": {
-                "metrics_by_k": _strict_curve_to_dict(result.ideal),
-            },
-            "uniform": {
-                "metrics_by_k": _strict_curve_to_dict(result.uniform),
-            },
-            "arithmetic": {
-                "p_ord_strict_by_k": _arithmetic_curve_to_dict(result.arithmetic),
-            },
-        },
-    }
+    output_payload: StrictBenchmarkResultFileModel = StrictBenchmarkResultFileModel(
+        instance=instance,
+        k_list=args.k_list,
+        m_mc=args.m_mc,
+        seed=args.seed,
+        result=result,
+        simulation_histogram_file=(
+            str(args.simulation_histograms)
+            if args.simulation_histograms is not None
+            else None
+        ),
+    )
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    with args.output.open("w", encoding="utf-8") as output_file:
-        json.dump(output_payload, output_file, indent=2)
+    args.output.write_text(output_payload.model_dump_json(indent=2), encoding="utf-8")
 
 
 if __name__ == "__main__":
