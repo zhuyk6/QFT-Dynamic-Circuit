@@ -35,7 +35,10 @@ mypy_path = "src"
 ignore_missing_imports = true
 plugins = ["numpy.typing.mypy_plugin"]
 
-[tool.pytest.ini_options]
+[tool.pytest]
+minversion = "9.0"
+strict = true
+addopts = ["--import-mode=importlib"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 filterwarnings = [
