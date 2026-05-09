@@ -8,7 +8,7 @@ from qiskit.circuit.library import (
     Measure,
     RZGate,
     SXGate,
-    XGate,
+    XGate,  # noqa: F401
 )
 from qiskit.providers.fake_provider import GenericBackendV2
 from qiskit.transpiler import (

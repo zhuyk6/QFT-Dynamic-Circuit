@@ -1,4 +1,7 @@
-def calc_tvd(ideal_prob: dict[int, float], noisy_counts: dict[int, int]) -> float:
+from collections.abc import Mapping
+
+
+def calc_tvd(ideal_prob: Mapping[int, float], noisy_counts: Mapping[int, int]) -> float:
     """
     Calculate the Total Variation Distance (TVD) between the ideal probability
     and the noisy frequency distribution.
@@ -22,7 +25,7 @@ def calc_tvd(ideal_prob: dict[int, float], noisy_counts: dict[int, int]) -> floa
     return 0.5 * tvd_sum
 
 
-def calc_fidelity(p: dict[int, float], q: dict[int, float]) -> float:
+def calc_fidelity(p: Mapping[int, float], q: Mapping[int, float]) -> float:
     """
     Calculate the fidelity between two probability distributions.
 

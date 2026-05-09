@@ -15,24 +15,24 @@ import json
 import math
 import random
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Literal
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from qiskit import QuantumCircuit, qpy
-from qiskit.transpiler import CouplingMap
-from qiskit_aer import AerSimulator
-from qiskit_aer.noise import NoiseModel
+from qiskit import QuantumCircuit
 from qiskit_ibm_runtime import Sampler
 
-from qft_dynamic.tools.build_backend import build_backend, load_hardware_config
-from qft_dynamic.tools.build_circuits import tile_transpiled_circuit
-from qft_dynamic.tools.transpile import generate_pass_manager
-
-ROOT = Path.cwd()
+from qft_dynamic.tools.config import resolve_shor_benchmark_paths
+from qft_dynamic.tools.simulation import (
+    NoiseModelConfig,
+    build_qft_simulation_context,
+    build_sampler,
+    compose_with_layout,
+    sample_counts,
+)
 
 
 def parse_batch_sizes(value: str) -> list[int]:
@@ -48,28 +48,6 @@ def parse_batch_sizes(value: str) -> list[int]:
     return parsed
 
 
-def build_qft_circuit(
-    num_qubits: int,
-    batch_size: int,
-    t_feed_forward: float,
-) -> QuantumCircuit:
-    """Build dynamic QFT large circuit by tiling optimized sub-circuit."""
-    assert num_qubits % batch_size == 0, "num_qubits must be multiple of batch_size"
-
-    filename = ROOT / "data" / "opt_circuits" / f"qft{batch_size}.qpy"
-    with open(filename, "rb") as f_in:
-        circ_opt: QuantumCircuit = qpy.load(f_in)[0]
-
-    num_tiles = num_qubits // batch_size
-    tiling_pattern = [
-        [i + j * batch_size for i in range(batch_size)] for j in range(num_tiles)
-    ]
-    large_circuit = tile_transpiled_circuit(
-        circ_opt.copy(), tiling_pattern, t_feed_forward
-    )
-    return large_circuit
-
-
 def prepare_sigma_k_star(num_qubits: int, k: int) -> QuantumCircuit:
     """Prepare sigma_k_star = (prod_l Rz(-pi*k/2^l, l)) H^n |0>."""
     prep = QuantumCircuit(num_qubits)
@@ -79,26 +57,6 @@ def prepare_sigma_k_star(num_qubits: int, k: int) -> QuantumCircuit:
         prep.rz(theta, i)
     prep.barrier()
     return prep
-
-
-def compose_with_layout(
-    transpiled_qft: QuantumCircuit,
-    prepare_circuit: QuantumCircuit,
-) -> QuantumCircuit:
-    """Compose prepare circuit in front, respecting transpiled layout mapping."""
-    assert transpiled_qft.layout is not None, "Transpiled circuit must have layout"
-
-    map_logical_to_physical = {
-        vq._index: pq
-        for pq, vq in transpiled_qft.layout.initial_layout.get_physical_bits().items()
-    }
-    map_bits = [map_logical_to_physical[i] for i in range(transpiled_qft.num_qubits)]
-
-    total = transpiled_qft.compose(
-        prepare_circuit, qubits=map_bits, front=True, inplace=False
-    )
-    assert total is not None
-    return total
 
 
 def probability_of_k(
@@ -112,11 +70,12 @@ def probability_of_k(
     prep = prepare_sigma_k_star(num_qubits, k)
     total_circuit = compose_with_layout(transpiled_qft, prep)
 
-    result = sampler.run([total_circuit], shots=num_shots).result()
-    counts = result[0].data["c"].get_counts()
-
-    key = format(k, f"0{num_qubits}b")
-    p_k = counts.get(key, 0) / num_shots
+    counts: Counter[int] = sample_counts(
+        circuit=total_circuit,
+        sampler=sampler,
+        num_shots=num_shots,
+    )
+    p_k = counts[k] / num_shots
     return p_k
 
 
@@ -198,43 +157,36 @@ def benchmark_process_fidelity(
     num_shots: int = 10**4,
     num_samples: int = 20,
     seed: int | None = None,
-    gate_error: bool = True,
-    readout_error: bool = True,
-    thermal_relaxation: bool = True,
+    noise_config: NoiseModelConfig | None = None,
 ) -> float:
     """Run process-fidelity benchmark for one batch size."""
     assert num_qubits % batch_size == 0, "num_qubits must be multiple of batch_size"
 
-    hardware_config = load_hardware_config(ROOT / "data" / "hardware.toml")
-    coupling_map = CouplingMap.from_line(num_qubits)
-    backend = build_backend(coupling_map, hardware_config)
+    resolved_paths = resolve_shor_benchmark_paths()
 
-    qft_circuit = build_qft_circuit(
-        num_qubits, batch_size, hardware_config["t_feed_forward"]
+    context = build_qft_simulation_context(
+        num_qubits=num_qubits,
+        batch_size=batch_size,
+        hardware_config_path=resolved_paths.hardware_config_path,
+        opt_circuits_path=resolved_paths.opt_circuits_path,
     )
-    pm = generate_pass_manager(backend)
-    transpiled_qft = pm.run(qft_circuit)
-
-    noise_model = NoiseModel.from_backend(
-        backend=backend,
-        gate_error=gate_error,
-        readout_error=readout_error,
-        thermal_relaxation=thermal_relaxation,
+    sampler = build_sampler(
+        backend=context.backend,
+        noise_config=noise_config,
     )
-    sampler = Sampler(mode=AerSimulator(noise_model=noise_model))
 
     match mode:
         case "exact":
             return process_fidelity_exact(
                 num_qubits=num_qubits,
-                transpiled_qft=transpiled_qft,
+                transpiled_qft=context.transpiled_qft,
                 sampler=sampler,
                 num_shots=num_shots,
             )
         case "sample":
             return process_fidelity_sampled(
                 num_qubits=num_qubits,
-                transpiled_qft=transpiled_qft,
+                transpiled_qft=context.transpiled_qft,
                 sampler=sampler,
                 num_shots=num_shots,
                 num_samples=num_samples,
@@ -253,9 +205,7 @@ def run_benchmark_suite(
     seed: int | None,
     output_filename: Path,
     auto_suffix: bool = True,
-    gate_error: bool = True,
-    readout_error: bool = True,
-    thermal_relaxation: bool = True,
+    noise_config: NoiseModelConfig | None = None,
 ) -> Path:
     """Run fidelity benchmark for all batch sizes and save JSON."""
     results: dict[int, float] = {}
@@ -268,9 +218,7 @@ def run_benchmark_suite(
             num_shots=num_shots,
             num_samples=num_samples,
             seed=seed,
-            gate_error=gate_error,
-            readout_error=readout_error,
-            thermal_relaxation=thermal_relaxation,
+            noise_config=noise_config,
         )
         results[batch_size] = fidelity
         print(f"Batch Size {batch_size}: process fidelity = {fidelity:.6f}")
@@ -284,6 +232,11 @@ def run_benchmark_suite(
             filename = filename.with_name(
                 f"{output_filename.stem}_{counter}{output_filename.suffix}"
             )
+
+    if noise_config is None:
+        noise_config = NoiseModelConfig()
+
+    gate_error, readout_error, thermal_relaxation = noise_config
 
     payload = {
         "num_qubits": num_qubits,
@@ -316,7 +269,9 @@ def _load_benchmark_results(results_dir: Path) -> dict[int, dict[str, Any]]:
     pattern = re.compile(r"^qft(\d+)(?:_(\d+))?\.json$")
 
     # ====== Aggregate values: batch_size -> n -> list[fidelity] ======
-    agg: dict[int, dict[int, list[float]]] = defaultdict(lambda: defaultdict(list))
+    agg: defaultdict[int, defaultdict[int, list[float]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
 
     for fp in files:
         m = pattern.match(fp.name)
@@ -599,9 +554,11 @@ def main() -> None:
                 seed=args.seed,
                 output_filename=args.output,
                 auto_suffix=not args.no_auto_suffix,
-                gate_error=args.gate_error,
-                readout_error=args.readout_error,
-                thermal_relaxation=args.thermal_relaxation,
+                noise_config=NoiseModelConfig(
+                    gate_error=args.gate_error,
+                    readout_error=args.readout_error,
+                    thermal_relaxation=args.thermal_relaxation,
+                ),
             )
         case "plot":
             plot_result(args.results_dir, args.baseline_csv, args.output)
@@ -610,5 +567,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    print(f"Current working directory: {ROOT}")
     main()

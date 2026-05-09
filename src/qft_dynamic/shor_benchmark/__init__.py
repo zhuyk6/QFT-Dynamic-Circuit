@@ -1,6 +1,5 @@
 """Shor benchmark package."""
 
-from .config import ShorBenchmarkPaths, resolve_shor_benchmark_paths
 from .samplers import (
     ArithmeticIdealEstimator,
     FiniteQIdealSampler,
@@ -33,9 +32,7 @@ __all__: list[str] = [
     "StrictCurveResult",
     "StrictBenchmarkResultFileModel",
     "StrictMetrics",
-    "ShorBenchmarkPaths",
     "UniformSampler",
     "evaluate_arithmetic_curve",
     "evaluate_strict_curve",
-    "resolve_shor_benchmark_paths",
 ]

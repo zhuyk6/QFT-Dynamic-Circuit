@@ -6,6 +6,8 @@ This script will try to find the best batch size which has:
 """
 
 import pickle
+from collections import Counter
+from collections.abc import Mapping
 from itertools import product
 from pathlib import Path
 from pprint import pprint
@@ -14,23 +16,19 @@ from typing import Callable
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.axes import Axes
-from qiskit import QuantumCircuit, generate_preset_pass_manager, qpy
-from qiskit.transpiler import CouplingMap, PassManager
-from qiskit_aer import AerSimulator
-from qiskit_aer.noise import NoiseModel
-from qiskit_ibm_runtime import Sampler
-from qiskit_ibm_runtime.transpiler.passes.scheduling import (
-    ASAPScheduleAnalysis,
-    PadDelay,
-)
+from qiskit import QuantumCircuit
 
-from qft_dynamic.tools.build_backend import build_backend, load_hardware_config
-from qft_dynamic.tools.build_circuits import (
-    prepare_circular_state_circuit,
-    tile_transpiled_circuit,
-)
+from qft_dynamic.tools.config import resolve_shor_benchmark_paths
+from qft_dynamic.tools.build_circuits import prepare_circular_state_circuit
 from qft_dynamic.tools.data_process import calc_tvd
-from qft_dynamic.tools.transpile import unroll_if_true
+from qft_dynamic.tools.simulation import (
+    NoiseModelConfig,
+    build_qft_simulation_context,
+    build_sampler,
+    compose_with_layout,
+    estimate_tiled_qft_runtime,
+    sample_counts,
+)
 
 
 def calculate_runtime(
@@ -43,61 +41,16 @@ def calculate_runtime(
         batch_size (int): The batch size to use for the circuit.
         num_qubits (int): The total number of qubits in the circuit.
     """
-    assert num_qubits % batch_size == 0, "num_qubits must be multiple of batch_size"
+    resolved_paths = resolve_shor_benchmark_paths()
 
-    # Load optimized circuit
-    filename = Path.cwd() / "data" / "opt_circuits" / f"qft{batch_size}.qpy"
-    with open(filename, "rb") as f_in:
-        circ_opt: QuantumCircuit = qpy.load(f_in)[0]
-
-    # build backend with given parameters
-    hardware_config = load_hardware_config(
-        Path.cwd() / "data" / "量子院" / "hardware.toml"
+    duration: float = estimate_tiled_qft_runtime(
+        num_qubits=num_qubits,
+        batch_size=batch_size,
+        hardware_config_path=resolved_paths.hardware_config_path,
+        opt_circuits_path=resolved_paths.opt_circuits_path,
+        unit="s",
+        unroll_dynamic_circuit=True,
     )
-
-    coupling_map = CouplingMap.from_line(num_qubits)
-    backend = build_backend(coupling_map, hardware_config)
-
-    # Transpilation PassManager
-    pm: PassManager = generate_preset_pass_manager(
-        optimization_level=3,
-        backend=backend,
-        initial_layout=list(range(num_qubits)),
-        routing_method="none",
-    )
-    durations = backend.target.durations()
-    pm.scheduling = PassManager(  # type: ignore
-        [
-            ASAPScheduleAnalysis(durations),
-            PadDelay(durations),
-        ]
-    )
-
-    # Build large circuit by tiling
-    sub_circ = circ_opt.copy()
-    num_tiles = num_qubits // batch_size
-    tiling_pattern = [
-        [i + j * batch_size for i in range(batch_size)] for j in range(num_tiles)
-    ]
-
-    large_circuit = tile_transpiled_circuit(
-        sub_circ,
-        tiling_pattern,
-        hardware_config["t_feed_forward"],
-    )
-    layout = large_circuit.layout
-
-    # make dynamic circuit to static circuit by unrolling
-    static_circuit = unroll_if_true(large_circuit)
-
-    # Transpile large circuit
-    total_circuit = pm.run(static_circuit)
-    total_circuit._layout = layout
-    assert isinstance(total_circuit, QuantumCircuit)
-    assert total_circuit.layout is not None
-
-    # Calculate running time
-    duration = total_circuit.estimate_duration(target=backend.target, unit="s")
     return duration
 
 
@@ -106,7 +59,7 @@ def calculate_metric(
     num_qubits: int,
     sampler_tag: tuple[bool, bool, bool],
     prepare_circ_fn: Callable[[int], QuantumCircuit],
-    metric_fn: Callable[[dict[int, int]], float],
+    metric_fn: Callable[[Mapping[int, int]], float],
     num_shots: int = 10**4,
 ) -> float:
     """Calculate the metric for a given batch size and noise model.
@@ -119,85 +72,36 @@ def calculate_metric(
         metric_fn (Callable[[dict[int, int]], float]): A function that takes the noisy counts and calculates the desired metric (e.g., TVD or fidelity).
         num_shots (int): The number of shots to use for sampling. Default is 10^4.
     """
-    assert num_qubits % batch_size == 0, "num_qubits must be multiple of batch_size"
+    resolved_paths = resolve_shor_benchmark_paths()
 
-    # Load optimized circuit
-    filename = Path.cwd() / "data" / "opt_circuits" / f"qft{batch_size}.qpy"
-    with open(filename, "rb") as f_in:
-        circ_opt: QuantumCircuit = qpy.load(f_in)[0]
-
-    # build backend with given parameters
-    hardware_config = load_hardware_config(
-        Path.cwd() / "data" / "量子院" / "hardware.toml"
+    context = build_qft_simulation_context(
+        num_qubits=num_qubits,
+        batch_size=batch_size,
+        hardware_config_path=resolved_paths.hardware_config_path,
+        opt_circuits_path=resolved_paths.opt_circuits_path,
     )
 
-    coupling_map = CouplingMap.from_line(num_qubits)
-    backend = build_backend(coupling_map, hardware_config)
-
-    # build sampler with given noise model
     gate_error, readout_error, thermal_relaxation = sampler_tag
-    noise_model = NoiseModel.from_backend(
-        backend,
-        gate_error=gate_error,
-        readout_error=readout_error,
-        thermal_relaxation=thermal_relaxation,
-    )
-    sampler = Sampler(mode=AerSimulator(noise_model=noise_model))
-
-    # Transpilation PassManager
-    pm: PassManager = generate_preset_pass_manager(
-        optimization_level=3,
-        backend=backend,
-        initial_layout=list(range(num_qubits)),
-        routing_method="none",
-    )
-    durations = backend.target.durations()
-    pm.scheduling = PassManager(  # type: ignore
-        [
-            ASAPScheduleAnalysis(durations),
-            PadDelay(durations),
-        ]
+    sampler = build_sampler(
+        backend=context.backend,
+        noise_config=NoiseModelConfig(
+            gate_error=gate_error,
+            readout_error=readout_error,
+            thermal_relaxation=thermal_relaxation,
+        ),
     )
 
-    # Build large circuit by tiling
-    sub_circ = circ_opt.copy()
-    num_tiles = num_qubits // batch_size
-    tiling_pattern = [
-        [i + j * batch_size for i in range(batch_size)] for j in range(num_tiles)
-    ]
-
-    large_circuit = tile_transpiled_circuit(
-        sub_circ,
-        tiling_pattern,
-        hardware_config["t_feed_forward"],
-    )
-    layout = large_circuit.layout
-
-    # Transpile large circuit
-    total_circuit = pm.run(large_circuit)
-    total_circuit._layout = layout
-    assert isinstance(total_circuit, QuantumCircuit)
-    assert total_circuit.layout is not None
-
-    # Build total circuit: prepare + large
-    map_logical_to_physical = {
-        vq._index: pq
-        for pq, vq in total_circuit.layout.initial_layout.get_physical_bits().items()
-    }
-    map_bits = [map_logical_to_physical[i] for i in range(total_circuit.num_qubits)]
-    total_circuit.compose(
-        prepare_circ_fn(num_qubits), qubits=map_bits, front=True, inplace=True
+    total_circuit: QuantumCircuit = compose_with_layout(
+        transpiled_circuit=context.transpiled_qft,
+        prepare_circuit=prepare_circ_fn(num_qubits),
     )
 
-    # Run sampler and calculate TVD
-    result = sampler.run([total_circuit], shots=num_shots).result()
-    counts = result[0].data["c"].get_counts()
-
-    num_qubits = large_circuit.num_qubits
-    noisy_counts: dict[int, int] = {int(k, base=2): v for k, v in counts.items()}
-
-    metric = metric_fn(noisy_counts)
-
+    noisy_counts: Counter[int] = sample_counts(
+        circuit=total_circuit,
+        sampler=sampler,
+        num_shots=num_shots,
+    )
+    metric: float = metric_fn(noisy_counts)
     return metric
 
 
@@ -211,7 +115,7 @@ def run_circular_state(
     # Record TVD results for each (sampler_key, batch_size)
     dict_sampler_batch_tvd: dict[str, dict[int, float]] = {}
 
-    def metric_tvd(noisy_counts: dict[int, int]) -> float:
+    def metric_tvd(noisy_counts: Mapping[int, int]) -> float:
         ideal_prob = {k << (num_qubits - 2): 1 / 4 for k in range(4)}
         return calc_tvd(ideal_prob, noisy_counts)
 
@@ -259,7 +163,7 @@ def run_ghz_state(
         prepare_circ.barrier()
         return prepare_circ
 
-    def metric_tvd(noisy_counts: dict[int, int]) -> float:
+    def metric_tvd(noisy_counts: Mapping[int, int]) -> float:
         N = 2**num_qubits
         ideal_prob = {k: (1 + np.cos(2 * np.pi * k / N)) / N for k in range(N)}
         return calc_tvd(ideal_prob, noisy_counts)

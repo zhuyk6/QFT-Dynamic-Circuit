@@ -17,7 +17,7 @@ _ENV_KEYS: tuple[str, ...] = (
 logger = logging.getLogger(__name__)
 
 
-class ShorBenchmarkPaths(BaseModel):
+class BenchmarkPaths(BaseModel):
     """Resolved filesystem paths for Shor benchmark resources."""
 
     model_config = ConfigDict(extra="forbid")
@@ -28,7 +28,7 @@ class ShorBenchmarkPaths(BaseModel):
 
 def resolve_shor_benchmark_paths(
     env_path: Path | None = None,
-) -> ShorBenchmarkPaths:
+) -> BenchmarkPaths:
     """Resolve resource paths from environment variables.
 
     Resolution order is:
@@ -84,7 +84,7 @@ def resolve_shor_benchmark_paths(
             "via process environment variables or a .env file."
         )
 
-    paths: ShorBenchmarkPaths = ShorBenchmarkPaths(
+    paths: BenchmarkPaths = BenchmarkPaths(
         hardware_config_path=Path(hardware_config_raw).expanduser(),
         opt_circuits_path=Path(opt_circuits_raw).expanduser(),
     )
