@@ -15,9 +15,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 from qiskit import QuantumCircuit
 
-from qft_dynamic.tools.config import resolve_shor_benchmark_paths
 from qft_dynamic.tools.build_backend import load_hardware_config
 from qft_dynamic.tools.build_circuits import prepare_circular_state_circuit
+from qft_dynamic.tools.config import resolve_shor_benchmark_paths
 from qft_dynamic.tools.data_process import calc_tvd
 from qft_dynamic.tools.simulation import (
     NoiseModelConfig,

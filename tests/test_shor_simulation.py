@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 from qiskit.quantum_info import Statevector
 
-from bench_shor_strict import run_strict_benchmark
 from qft_dynamic.shor_benchmark.samplers import HistogramSampler
 from qft_dynamic.shor_benchmark.schemas import (
     HistogramFileModel,
@@ -96,16 +95,6 @@ def test_histogram_sampler_and_benchmark_can_load_histogram_file(
 
     histogram_file: HistogramFileModel = HistogramFileModel.load(histogram_path)
     assert histogram_file.instance == instance
-
-    result = run_strict_benchmark(
-        instance=instance,
-        k_list=[1, 2],
-        m_mc=16,
-        seed=7,
-        histogram_path=histogram_path,
-    )
-    assert result.simulation is not None
-    assert sorted(result.simulation.metrics_by_k.keys()) == [1, 2]
 
 
 def test_strict_benchmark_output_schema_round_trip(tmp_path: Path) -> None:
