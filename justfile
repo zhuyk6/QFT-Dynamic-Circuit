@@ -15,3 +15,8 @@ fmt-check:
 # Test the project with pytest.
 test:
 	uv run pytest
+
+# Check with linters.
+check:
+	uv run ruff check .
+	uv run ty check
