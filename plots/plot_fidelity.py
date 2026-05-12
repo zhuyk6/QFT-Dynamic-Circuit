@@ -1,0 +1,191 @@
+"""Plot process-fidelity benchmark results."""
+
+import argparse
+import json
+import math
+import re
+from collections import defaultdict
+from pathlib import Path
+from typing import Any
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
+
+def _load_benchmark_results(results_dir: Path) -> dict[int, dict[str, Any]]:
+    """Aggregate benchmark JSON files into mean/std series per batch size."""
+
+    files = sorted(results_dir.glob("qft*.json"))
+    pattern = re.compile(r"^qft(\d+)(?:_(\d+))?\.json$")
+    agg: defaultdict[int, defaultdict[int, list[float]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+
+    fp: Path
+    for fp in files:
+        match = pattern.match(fp.name)
+        if match is None:
+            continue
+
+        num_qubits: int = int(match.group(1))
+        with open(fp, "r") as input_file:
+            payload = json.load(input_file)
+
+        fidelity_by_batch_size = payload.get("fidelity_by_batch_size", {})
+        if not isinstance(fidelity_by_batch_size, dict):
+            continue
+
+        batch_key: str
+        fid: object
+        for batch_key, fid in fidelity_by_batch_size.items():
+            assert isinstance(fid, str)
+            try:
+                batch_size: int = int(batch_key)
+                fidelity_value: float = float(fid)
+            except (ValueError, TypeError):
+                continue
+            agg[batch_size][num_qubits].append(fidelity_value)
+
+    stats: dict[int, dict[str, Any]] = {}
+    n_dict: defaultdict[int, list[float]]
+    for batch_size, n_dict in sorted(agg.items()):
+        n_list: list[int] = sorted(n_dict.keys())
+        mean_list: list[float] = []
+        std_list: list[float] = []
+
+        for num_qubits in n_list:
+            arr = np.array(n_dict[num_qubits], dtype=float)
+            mean_list.append(arr.mean())
+            std_list.append(arr.std(ddof=0))
+
+        stats[batch_size] = {
+            "n": np.array(n_list, dtype=int),
+            "mean": np.array(mean_list, dtype=float),
+            "std": np.array(std_list, dtype=float),
+        }
+
+    return stats
+
+
+def _snap_to_integer_x(
+    points: list[tuple[float, float]],
+    x_min: int | None = None,
+    x_max: int | None = None,
+) -> list[tuple[float, float]]:
+    """Keep only one point per integer x after rounding."""
+
+    best: dict[int, tuple[float, float, float]] = {}
+    x_value: float
+    y_value: float
+    for x_value, y_value in points:
+        rounded_x: int = int(round(x_value))
+        if x_min is not None and rounded_x < x_min:
+            continue
+        if x_max is not None and rounded_x > x_max:
+            continue
+
+        dist: float = abs(x_value - rounded_x)
+        previous = best.get(rounded_x)
+        if previous is None:
+            best[rounded_x] = (dist, x_value, y_value)
+        else:
+            prev_dist, _prev_x, prev_y = previous
+            if dist < prev_dist or (math.isclose(dist, prev_dist) and y_value > prev_y):
+                best[rounded_x] = (dist, x_value, y_value)
+
+    return [(float(x), best[x][2]) for x in sorted(best.keys())]
+
+
+def _load_baseline(baseline_csv: Path) -> dict[str, list[tuple[float, float]]]:
+    """Load baseline curves from the two-row-header CSV export."""
+
+    dataframe = pd.read_csv(baseline_csv, header=[0, 1])
+    level0 = pd.Index(dataframe.columns.get_level_values(0), dtype="object")
+    level1 = pd.Index(dataframe.columns.get_level_values(1), dtype="object")
+    level0 = level0.to_series().replace(r"^Unnamed:.*$", pd.NA, regex=True).ffill()
+    level1 = level1.to_series().replace(r"^Unnamed:.*$", pd.NA, regex=True)
+    dataframe.columns = pd.MultiIndex.from_arrays([level0, level1])
+
+    methods = [m for m in dataframe.columns.get_level_values(0).unique()]
+    raw_data: dict[str, list[tuple[float, float]]] = {}
+
+    method: str
+    for method in methods:
+        assert (method, "X") in dataframe.columns or (method, "Y") in dataframe.columns
+        x_series = pd.to_numeric(dataframe[(method, "X")], errors="coerce")
+        y_series = pd.to_numeric(dataframe[(method, "Y")], errors="coerce")
+        mask = x_series.notna() & y_series.notna()
+        raw_data[str(method)] = list(
+            zip(
+                x_series[mask].astype(float).to_list(),
+                y_series[mask].astype(float).to_list(),
+            )
+        )
+
+    return {m: _snap_to_integer_x(data, 2, 40) for m, data in raw_data.items()}
+
+
+def plot_result(
+    results_dir: Path | None,
+    baseline_csv: Path | None,
+    output_filename: Path,
+) -> None:
+    """Plot fidelity results from benchmark JSON files and optional baselines."""
+
+    if results_dir is None and baseline_csv is None:
+        raise ValueError("Either `results_dir` or `baseline_csv` must be provided.")
+
+    results = _load_benchmark_results(results_dir) if results_dir is not None else None
+    baseline = _load_baseline(baseline_csv) if baseline_csv is not None else None
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    if baseline is not None:
+        method: str
+        data: list[tuple[float, float]]
+        for method, data in baseline.items():
+            x_list = [x for x, _ in data]
+            y_list = [y for _, y in data]
+            color: str = "#00bfbf" if method.startswith("unitary") else "#9c009c"
+            linestyle: str = "dashed" if method.endswith("no DD") else "-"
+            ax.plot(x_list, y_list, label=method, marker="o", color=color, ls=linestyle)
+
+    if results is not None:
+        batch_size: int
+        for batch_size in sorted(results.keys()):
+            x = results[batch_size]["n"]
+            y = results[batch_size]["mean"]
+            yerr = results[batch_size]["std"]
+            plt.errorbar(
+                x, y, yerr=yerr, marker="x", label=f"batch size = {batch_size}"
+            )
+
+    ax.set_xlim(2, 12 if baseline is None else 40)
+    ax.set_ylim(0, 1)
+    ax.legend()
+
+    output_filename.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_filename)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build the CLI parser for fidelity plotting."""
+
+    parser = argparse.ArgumentParser(description="Plot dynamic-QFT fidelity results.")
+    parser.add_argument("--results-dir", type=Path, required=False)
+    parser.add_argument("--baseline-csv", type=Path, required=False)
+    parser.add_argument("--output", type=Path, required=True)
+    return parser
+
+
+def main() -> None:
+    """CLI entry point."""
+
+    parser = build_parser()
+    args = parser.parse_args()
+    plot_result(args.results_dir, args.baseline_csv, args.output)
+
+
+if __name__ == "__main__":
+    main()

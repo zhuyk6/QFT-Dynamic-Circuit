@@ -11,8 +11,6 @@ from collections import Counter
 from pathlib import Path
 from pprint import pprint
 
-import matplotlib.pyplot as plt
-import numpy as np
 from qiskit import QuantumCircuit
 
 from qft_dynamic.tools.build_backend import load_hardware_config
@@ -185,45 +183,6 @@ def run_benchmark_suite(
     return filename
 
 
-def plot_result(
-    results_filename: Path,
-    savefig_filename: Path,
-) -> None:
-    # Load results
-    with open(results_filename, "r") as f_in:
-        raw_dict: dict[str, dict[str, float]] = json.load(f_in)
-    dict_tvd_batch_method = {int(k): v for k, v in raw_dict.items()}
-
-    # Plot results
-    # Using histogram:
-    # - each group of bars corresponds to a batch size
-    # - each bar in a group corresponds to a method (base, enc perfect, enc modify)
-    batch_sizes = sorted(dict_tvd_batch_method.keys())
-    methods = ["base", "enc perfect", "enc modify"]
-
-    x = np.arange(len(batch_sizes))
-    width = 0.2
-
-    fig, ax = plt.subplots(figsize=(10, 6))
-
-    for i, method in enumerate(methods):
-        method_values = [
-            dict_tvd_batch_method[batch_size][method] for batch_size in batch_sizes
-        ]
-        ax.bar(x + i * width, method_values, width, label=method)
-
-    ax.set_xlabel("Batch Size")
-    ax.set_ylabel("TVD")
-    ax.set_title("TVD for Different Batch Sizes and Encode Methods")
-    ax.set_xticks(x + width)
-    ax.set_xticklabels(map(str, batch_sizes))
-    ax.legend()
-
-    savefig_filename.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(savefig_filename)
-    print(f"Saved figure to: {savefig_filename}")
-
-
 def parse_batch_sizes(value: str) -> list[int]:
     """Parse comma-separated batch sizes such as "1,2,3"."""
     try:
@@ -239,78 +198,51 @@ def parse_batch_sizes(value: str) -> list[int]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Benchmark and plot measurement-encoding results."
+        description="Benchmark measurement-encoding results."
     )
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    # "run" command for running benchmark and saving JSON results
-    run_parser = subparsers.add_parser("run", help="Run benchmark and save JSON")
-    run_parser.add_argument("--num-qubits", type=int, default=12)
-    run_parser.add_argument(
+    parser.add_argument("--num-qubits", type=int, default=12)
+    parser.add_argument(
         "--batch-sizes",
         type=parse_batch_sizes,
         default=[1, 2, 3],
         help='Comma-separated batch sizes, e.g. "1,2,3"',
     )
-    run_parser.add_argument(
+    parser.add_argument(
         "--delay-time",
         type=float,
         default=100e-9,
         help="Delay time before measurement in seconds",
     )
-    run_parser.add_argument("--num-shots", type=int, default=10**5)
-    run_parser.add_argument("--prob-meas1-prep0", type=float, default=0.001)
-    run_parser.add_argument("--prob-meas0-prep1", type=float, default=0.002)
-    run_parser.add_argument(
+    parser.add_argument("--num-shots", type=int, default=10**5)
+    parser.add_argument("--prob-meas1-prep0", type=float, default=0.001)
+    parser.add_argument("--prob-meas0-prep1", type=float, default=0.002)
+    parser.add_argument(
         "--output",
         type=Path,
         required=True,
         help="Output JSON file path",
     )
-    run_parser.add_argument(
+    parser.add_argument(
         "--no-auto-suffix",
         action="store_true",
         help="Overwrite output path instead of auto-incrementing suffix",
     )
-
-    # "plot" command for plotting figure from JSON results
-    plot_parser = subparsers.add_parser("plot", help="Plot benchmark JSON as figure")
-    plot_parser.add_argument(
-        "--results",
-        type=Path,
-        required=True,
-        help="Input JSON results file path",
-    )
-    plot_parser.add_argument(
-        "--output",
-        type=Path,
-        required=True,
-        help="Output figure file path",
-    )
-
     return parser
 
 
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
-
-    match args.command:
-        case "run":
-            run_benchmark_suite(
-                num_qubits=args.num_qubits,
-                batch_size_list=args.batch_sizes,
-                delay_time=args.delay_time,
-                num_shots=args.num_shots,
-                prob_meas1_prep0=args.prob_meas1_prep0,
-                prob_meas0_prep1=args.prob_meas0_prep1,
-                output_filename=args.output,
-                auto_suffix=not args.no_auto_suffix,
-            )
-        case "plot":
-            plot_result(args.results, args.output)
-        case cmd:
-            raise ValueError(f"Unknown command: {cmd}")
+    run_benchmark_suite(
+        num_qubits=args.num_qubits,
+        batch_size_list=args.batch_sizes,
+        delay_time=args.delay_time,
+        num_shots=args.num_shots,
+        prob_meas1_prep0=args.prob_meas1_prep0,
+        prob_meas0_prep1=args.prob_meas0_prep1,
+        output_filename=args.output,
+        auto_suffix=not args.no_auto_suffix,
+    )
 
 
 if __name__ == "__main__":
