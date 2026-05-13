@@ -14,12 +14,14 @@ import argparse
 import json
 import math
 import random
+import warnings
+from collections import Counter
 from pathlib import Path
 from typing import Literal
-from collections import Counter
 
 from qiskit import QuantumCircuit
 from qiskit_ibm_runtime import Sampler
+from tqdm import tqdm
 
 from qft_dynamic.tools.config import resolve_shor_benchmark_paths
 from qft_dynamic.tools.simulation import (
@@ -29,6 +31,10 @@ from qft_dynamic.tools.simulation import (
     compose_with_layout,
     sample_counts,
 )
+
+
+def setup_warnings():
+    warnings.filterwarnings("ignore", module="qiskit")
 
 
 def parse_batch_sizes(value: str) -> list[int]:
@@ -206,7 +212,7 @@ def run_benchmark_suite(
     """Run fidelity benchmark for all batch sizes and save JSON."""
     results: dict[int, float] = {}
 
-    for batch_size in batch_size_list:
+    for batch_size in tqdm(batch_size_list):
         fidelity = benchmark_process_fidelity(
             num_qubits=num_qubits,
             batch_size=batch_size,
@@ -307,8 +313,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    setup_warnings()
+
     parser = build_parser()
     args = parser.parse_args()
+
     run_benchmark_suite(
         num_qubits=args.num_qubits,
         batch_size_list=args.batch_sizes,

@@ -6,14 +6,15 @@ import math
 import re
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
 
-def _load_benchmark_results(results_dir: Path) -> dict[int, dict[str, Any]]:
+def _load_benchmark_results(
+    results_dir: Path,
+) -> dict[int, dict[str, np.ndarray[tuple[int], np.dtype[np.floating]]]]:
     """Aggregate benchmark JSON files into mean/std series per batch size."""
 
     files = sorted(results_dir.glob("qft*.json"))
@@ -32,22 +33,15 @@ def _load_benchmark_results(results_dir: Path) -> dict[int, dict[str, Any]]:
         with open(fp, "r") as input_file:
             payload = json.load(input_file)
 
-        fidelity_by_batch_size = payload.get("fidelity_by_batch_size", {})
-        if not isinstance(fidelity_by_batch_size, dict):
-            continue
+        fidelity_by_batch_size: dict[str, float] = payload.get(
+            "fidelity_by_batch_size", {}
+        )
 
-        batch_key: str
-        fid: object
         for batch_key, fid in fidelity_by_batch_size.items():
-            assert isinstance(fid, str)
-            try:
-                batch_size: int = int(batch_key)
-                fidelity_value: float = float(fid)
-            except (ValueError, TypeError):
-                continue
-            agg[batch_size][num_qubits].append(fidelity_value)
+            batch_size: int = int(batch_key)
+            agg[batch_size][num_qubits].append(fid)
 
-    stats: dict[int, dict[str, Any]] = {}
+    stats: dict[int, dict[str, np.ndarray[tuple[int], np.dtype[np.floating]]]] = {}
     n_dict: defaultdict[int, list[float]]
     for batch_size, n_dict in sorted(agg.items()):
         n_list: list[int] = sorted(n_dict.keys())

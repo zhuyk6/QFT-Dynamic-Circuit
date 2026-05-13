@@ -7,6 +7,7 @@ This script evaluates batch sizes using:
 
 import argparse
 import pickle
+import warnings
 from collections import Counter
 from collections.abc import Mapping
 from itertools import product
@@ -16,6 +17,7 @@ from typing import Callable
 
 import numpy as np
 from qiskit import QuantumCircuit
+from tqdm import tqdm
 
 from qft_dynamic.tools.build_circuits import prepare_circular_state_circuit
 from qft_dynamic.tools.config import resolve_shor_benchmark_paths
@@ -164,7 +166,7 @@ def run_circular_state(
         ideal_prob = {k << (num_qubits - 2): 1 / 4 for k in range(4)}
         return calc_tvd(ideal_prob, noisy_counts)
 
-    for gate_error, readout_error, thermal_relaxation_error in sampler_tag_list:
+    for gate_error, readout_error, thermal_relaxation_error in tqdm(sampler_tag_list):
         key = (
             f"g{int(gate_error)}-r{int(readout_error)}-t{int(thermal_relaxation_error)}"
         )
@@ -213,7 +215,7 @@ def run_ghz_state(
         ideal_prob = {k: (1 + np.cos(2 * np.pi * k / N)) / N for k in range(N)}
         return calc_tvd(ideal_prob, noisy_counts)
 
-    for gate_error, readout_error, thermal_relaxation_error in sampler_tag_list:
+    for gate_error, readout_error, thermal_relaxation_error in tqdm(sampler_tag_list):
         key = (
             f"g{int(gate_error)}-r{int(readout_error)}-t{int(thermal_relaxation_error)}"
         )
@@ -239,119 +241,8 @@ def run_ghz_state(
     return dict_sampler_batch_tvd
 
 
-def main_circular():
-    dict_sampler_batch_tvd = run_circular_state(
-        12,
-        [1, 2, 3],
-        _all_sampler_tags(),
-        10**5,
-    )
-
-    pprint(dict_sampler_batch_tvd)
-
-    filename = (
-        Path.cwd() / "data" / "opt_circuits" / "circular_state_tvd_sampler_batch.pkl"
-    )
-    # if filename already exists, add suffix number to avoid overwriting
-    counter = 0
-    while filename.exists():
-        counter += 1
-        filename = (
-            Path.cwd()
-            / "data"
-            / "opt_circuits"
-            / f"circular_state_tvd_sampler_batch_{counter}.pkl"
-        )
-    with open(filename, "wb") as f_out:
-        pickle.dump(dict_sampler_batch_tvd, f_out)
-
-
-def main_ghz():
-    dict_sampler_batch_tvd = run_ghz_state(
-        12,
-        [1, 2, 3],
-        _all_sampler_tags(),
-        10**5,
-    )
-
-    pprint(dict_sampler_batch_tvd)
-
-    filename = Path.cwd() / "data" / "opt_circuits" / "ghz_state_tvd_sampler_batch.pkl"
-    # if filename already exists, add suffix number to avoid overwriting
-    counter = 0
-    while filename.exists():
-        counter += 1
-        filename = (
-            Path.cwd()
-            / "data"
-            / "opt_circuits"
-            / f"ghz_state_tvd_sampler_batch_{counter}.pkl"
-        )
-
-    with open(filename, "wb") as f_out:
-        pickle.dump(dict_sampler_batch_tvd, f_out)
-
-
-def main_time():
-    batch_size_list = [1, 2, 3]
-    runtime_dict: dict[int, float] = {}
-    for batch_size in batch_size_list:
-        runtime = calculate_runtime(batch_size, 12)
-        runtime_dict[batch_size] = runtime
-
-    print("Runtime for different batch sizes:")
-    pprint(runtime_dict)
-
-
-def main_tvd_vs_num_qubits():
-    """Calculate TVD vs num_qubits for different batch size."""
-
-    min_num_qubits = 2
-    max_num_qubits = 12
-    batch_size_list = [1, 2, 3]
-
-    dict_batch_num_tvd: dict[int, dict[int, float]] = {}
-
-    for num_qubits in range(min_num_qubits, max_num_qubits + 1):
-        for batch_size in batch_size_list:
-            # skip if num_qubits is not multiple of batch_size
-            if num_qubits % batch_size != 0:
-                continue
-
-            tvd = calculate_metric(
-                batch_size=batch_size,
-                num_qubits=num_qubits,
-                sampler_tag=(True, True, True),
-                prepare_circ_fn=lambda n: prepare_circular_state_circuit(n, r=4),
-                metric_fn=lambda counts: calc_tvd(
-                    {k << (num_qubits - 2): 1 / 4 for k in range(4)}, counts
-                ),
-                num_shots=10**5,
-            )
-
-            if batch_size not in dict_batch_num_tvd:
-                dict_batch_num_tvd[batch_size] = {}
-            dict_batch_num_tvd[batch_size][num_qubits] = tvd
-
-    print("TVD for different batch sizes and number of qubits:")
-    pprint(dict_batch_num_tvd)
-
-    # save results to disk
-    filename = (
-        Path.cwd() / "data" / "opt_circuits" / "circular_state_tvd_batch_num_qubits.pkl"
-    )
-    # if filename already exists, add suffix
-    counter = 0
-    while filename.exists():
-        counter += 1
-        filename = (
-            Path.cwd()
-            / "data"
-            / "opt_circuits"
-            / f"circular_state_tvd_batch_num_qubits_{counter}.pkl"
-        )
-    with open(filename, "wb") as f_out:
-        pickle.dump(dict_batch_num_tvd, f_out)
+def setup_warnings():
+    warnings.filterwarnings("ignore", module="qiskit")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -437,6 +328,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     """CLI entry point for batch-size benchmarks."""
+    setup_warnings()
 
     parser = build_parser()
     args = parser.parse_args()
@@ -484,8 +376,7 @@ def main() -> None:
             batch_size_list: list[int] = args.batch_sizes
 
             dict_batch_num_tvd: dict[int, dict[int, float]] = {}
-            num_qubits: int
-            for num_qubits in range(min_num_qubits, max_num_qubits + 1):
+            for num_qubits in tqdm(range(min_num_qubits, max_num_qubits + 1)):
                 for batch_size in batch_size_list:
                     if num_qubits % batch_size != 0:
                         continue

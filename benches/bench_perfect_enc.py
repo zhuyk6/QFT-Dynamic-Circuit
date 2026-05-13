@@ -7,11 +7,13 @@ Here we compare two methods:
 
 import argparse
 import json
-from collections import Counter
+import warnings
+from collections import Counter, defaultdict
 from pathlib import Path
 from pprint import pprint
 
 from qiskit import QuantumCircuit
+from tqdm import tqdm
 
 from qft_dynamic.tools.build_backend import load_hardware_config
 from qft_dynamic.tools.build_circuits import prepare_circular_state_circuit
@@ -29,6 +31,10 @@ from qft_dynamic.tools.simulation import (
 from qft_dynamic.tools.transpile import (
     add_delay_before_measurement,
 )
+
+
+def setup_warnings():
+    warnings.filterwarnings("ignore", module="qiskit")
 
 
 def benchmark(
@@ -136,12 +142,9 @@ def run_benchmark_suite(
     Returns:
         Path: the actual output file path.
     """
-    dict_tvd_batch_method: dict[int, dict[str, float]] = {}
+    dict_tvd_batch_method: defaultdict[int, dict[str, float]] = defaultdict(dict)
 
-    for batch_size in batch_size_list:
-        if batch_size not in dict_tvd_batch_method:
-            dict_tvd_batch_method[batch_size] = {}
-
+    for batch_size in tqdm(batch_size_list):
         dict_tvd_batch_method[batch_size]["base"] = benchmark(
             num_qubits=num_qubits,
             batch_size=batch_size,
@@ -231,8 +234,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    setup_warnings()
+
     parser = build_parser()
     args = parser.parse_args()
+
     run_benchmark_suite(
         num_qubits=args.num_qubits,
         batch_size_list=args.batch_sizes,
