@@ -1,38 +1,14 @@
 """Plot Shor strict benchmark results from JSON output."""
 
-import argparse
 import json
 from pathlib import Path
+from typing import Annotated
 
 import matplotlib.pyplot as plt
+import typer
 from matplotlib.axes import Axes
 
-
-def build_cli() -> argparse.ArgumentParser:
-    """Build argument parser for the plot script."""
-
-    parser: argparse.ArgumentParser = argparse.ArgumentParser(
-        description="Plot Shor strict benchmark results from a JSON file."
-    )
-    parser.add_argument(
-        "--input",
-        type=Path,
-        required=True,
-        help="Path to the benchmark JSON file.",
-    )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        required=True,
-        help="Path to save the output plot (PNG, PDF, etc.).",
-    )
-    parser.add_argument(
-        "--dpi",
-        type=int,
-        default=150,
-        help="Output image DPI (default: 150).",
-    )
-    return parser
+app = typer.Typer()
 
 
 def load_data(
@@ -51,7 +27,6 @@ def load_data(
     Returns:
         tuple containing k_list, strict_curves, arithmetic_curve, instance_info
     """
-
     with input_path.open("r", encoding="utf-8") as f:
         data: dict = json.load(f)
 
@@ -99,7 +74,6 @@ def plot_benchmark(
         output_path: Path to save the figure.
         dpi: Output DPI.
     """
-
     colors: dict[str, str] = {
         "ideal": "#1f77b4",
         "uniform": "#d62728",
@@ -115,8 +89,6 @@ def plot_benchmark(
 
     # --- Left panel: P_ord_strict vs K ---
     ax1: Axes = axes[0]
-    y_vals: list[float]
-    name: str
     for name in ("ideal", "uniform"):
         y_vals = [strict_curves[name][k]["p_ord_strict"] for k in k_list]
         ax1.plot(
@@ -211,23 +183,24 @@ def plot_benchmark(
     plt.close(fig)
 
 
-def main() -> None:
-    """CLI entry point."""
-
-    parser: argparse.ArgumentParser = build_cli()
-    args: argparse.Namespace = parser.parse_args()
-
-    k_list, strict_curves, arithmetic_curve, instance = load_data(args.input)
+@app.command()
+def main(
+    input: Annotated[Path, typer.Argument(help="Path to the benchmark JSON file")],
+    output: Annotated[Path, typer.Argument(help="Path to save the output plot")],
+    dpi: Annotated[int, typer.Option(help="Output image DPI")] = 150,
+) -> None:
+    """Plot Shor strict benchmark results from a JSON file."""
+    k_list, strict_curves, arithmetic_curve, instance = load_data(input)
 
     plot_benchmark(
         k_list=k_list,
         strict_curves=strict_curves,
         arithmetic_curve=arithmetic_curve,
         instance=instance,
-        output_path=args.output,
-        dpi=args.dpi,
+        output_path=output,
+        dpi=dpi,
     )
 
 
 if __name__ == "__main__":
-    main()
+    app()

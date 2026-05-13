@@ -5,7 +5,6 @@ This script evaluates batch sizes using:
 - the minimum TVD (or maximum fidelity)
 """
 
-import argparse
 import pickle
 import warnings
 from collections import Counter
@@ -13,9 +12,10 @@ from collections.abc import Mapping
 from itertools import product
 from pathlib import Path
 from pprint import pprint
-from typing import Callable
+from typing import Annotated, Callable
 
 import numpy as np
+import typer
 from qiskit import QuantumCircuit
 from tqdm import tqdm
 
@@ -31,24 +31,11 @@ from qft_dynamic.tools.simulation import (
     sample_counts,
 )
 
-
-def parse_batch_sizes(value: str) -> list[int]:
-    """Parse comma-separated batch sizes such as ``"1,2,3"``."""
-
-    try:
-        parsed: list[int] = [int(x.strip()) for x in value.split(",") if x.strip()]
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError(f"Invalid batch size list: {value}") from exc
-    if not parsed:
-        raise argparse.ArgumentTypeError("Batch size list cannot be empty")
-    if any(v <= 0 for v in parsed):
-        raise argparse.ArgumentTypeError("Batch sizes must be positive integers")
-    return parsed
+app = typer.Typer()
 
 
 def _all_sampler_tags() -> list[tuple[bool, bool, bool]]:
     """Return all combinations of the three noise toggles."""
-
     sampler_tag_list: list[tuple[bool, bool, bool]] = []
     for tag in product([False, True], repeat=3):
         sampler_tag_list.append(tag)  # type: ignore
@@ -61,7 +48,6 @@ def _save_pickle_with_optional_suffix(
     auto_suffix: bool = True,
 ) -> Path:
     """Save a pickle payload, optionally auto-incrementing the filename."""
-
     filename: Path = output_filename
     if auto_suffix:
         counter: int = 0
@@ -170,7 +156,7 @@ def run_circular_state(
         key = (
             f"g{int(gate_error)}-r{int(readout_error)}-t{int(thermal_relaxation_error)}"
         )
-        print(f"Running for sampelr {key}")
+        print(f"Running for sampler {key}")
 
         dict_sampler_batch_tvd[key] = {}
 
@@ -219,7 +205,7 @@ def run_ghz_state(
         key = (
             f"g{int(gate_error)}-r{int(readout_error)}-t{int(thermal_relaxation_error)}"
         )
-        print(f"Running for sampelr {key}")
+        print(f"Running for sampler {key}")
 
         dict_sampler_batch_tvd[key] = {}
 
@@ -241,173 +227,142 @@ def run_ghz_state(
     return dict_sampler_batch_tvd
 
 
-def setup_warnings():
+def setup_warnings() -> None:
+    """Suppress noisy Qiskit warnings."""
     warnings.filterwarnings("ignore", module="qiskit")
 
 
-def build_parser() -> argparse.ArgumentParser:
-    """Build the command-line parser for batch-size benchmarks."""
-
-    parser = argparse.ArgumentParser(
-        description="Benchmark different batch sizes for dynamic-QFT workloads."
+@app.command()
+def run_circular(
+    output: Annotated[Path, typer.Argument(help="Output pickle file path")],
+    num_qubits: Annotated[int, typer.Option(help="Number of qubits")] = 12,
+    batch_sizes: Annotated[
+        list[int],
+        typer.Option(
+            help="Batch sizes",
+        ),
+    ] = [1, 2, 3],
+    num_shots: Annotated[int, typer.Option(help="Number of shots per circuit")] = 10**5,
+    auto_suffix: Annotated[
+        bool, typer.Option(help="Auto-increment output path if it exists")
+    ] = True,
+) -> None:
+    """Run circular-state TVD benchmark for all noise combinations."""
+    setup_warnings()
+    result = run_circular_state(
+        num_qubits=num_qubits,
+        batch_size_list=batch_sizes,
+        sampler_tag_list=_all_sampler_tags(),
+        num_shots=num_shots,
     )
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    circular_parser = subparsers.add_parser(
-        "run-circular",
-        help="Run circular-state TVD benchmark for all noise combinations",
-    )
-    circular_parser.add_argument("--num-qubits", type=int, default=12)
-    circular_parser.add_argument(
-        "--batch-sizes",
-        type=parse_batch_sizes,
-        default=[1, 2, 3],
-        help='Comma-separated batch sizes, e.g. "1,2,3"',
-    )
-    circular_parser.add_argument("--num-shots", type=int, default=10**5)
-    circular_parser.add_argument("--output", type=Path, required=True)
-    circular_parser.add_argument(
-        "--no-auto-suffix",
-        action="store_true",
-        help="Overwrite output path instead of auto-incrementing suffix",
-    )
-
-    ghz_parser = subparsers.add_parser(
-        "run-ghz",
-        help="Run GHZ-state TVD benchmark for all noise combinations",
-    )
-    ghz_parser.add_argument("--num-qubits", type=int, default=12)
-    ghz_parser.add_argument(
-        "--batch-sizes",
-        type=parse_batch_sizes,
-        default=[1, 2, 3],
-        help='Comma-separated batch sizes, e.g. "1,2,3"',
-    )
-    ghz_parser.add_argument("--num-shots", type=int, default=10**5)
-    ghz_parser.add_argument("--output", type=Path, required=True)
-    ghz_parser.add_argument(
-        "--no-auto-suffix",
-        action="store_true",
-        help="Overwrite output path instead of auto-incrementing suffix",
+    pprint(result)
+    _save_pickle_with_optional_suffix(
+        payload=result,
+        output_filename=output,
+        auto_suffix=auto_suffix,
     )
 
-    runtime_parser = subparsers.add_parser(
-        "run-time",
-        help="Print estimated runtime for each batch size",
+
+@app.command()
+def run_ghz(
+    output: Annotated[Path, typer.Argument(help="Output pickle file path")],
+    num_qubits: Annotated[int, typer.Option(help="Number of qubits")] = 12,
+    batch_sizes: Annotated[
+        list[int],
+        typer.Option(
+            help="Batch sizes",
+        ),
+    ] = [1, 2, 3],
+    num_shots: Annotated[int, typer.Option(help="Number of shots per circuit")] = 10**5,
+    auto_suffix: Annotated[
+        bool, typer.Option(help="Auto-increment output path if it exists")
+    ] = True,
+) -> None:
+    """Run GHZ-state TVD benchmark for all noise combinations."""
+    setup_warnings()
+    result = run_ghz_state(
+        num_qubits=num_qubits,
+        batch_size_list=batch_sizes,
+        sampler_tag_list=_all_sampler_tags(),
+        num_shots=num_shots,
     )
-    runtime_parser.add_argument("--num-qubits", type=int, default=12)
-    runtime_parser.add_argument(
-        "--batch-sizes",
-        type=parse_batch_sizes,
-        default=[1, 2, 3],
-        help='Comma-separated batch sizes, e.g. "1,2,3"',
+    pprint(result)
+    _save_pickle_with_optional_suffix(
+        payload=result,
+        output_filename=output,
+        auto_suffix=auto_suffix,
     )
 
-    tvd_parser = subparsers.add_parser(
-        "run-tvd-vs-num-qubits",
-        help="Run circular-state TVD benchmark versus the number of qubits",
-    )
-    tvd_parser.add_argument("--min-num-qubits", type=int, default=2)
-    tvd_parser.add_argument("--max-num-qubits", type=int, default=12)
-    tvd_parser.add_argument(
-        "--batch-sizes",
-        type=parse_batch_sizes,
-        default=[1, 2, 3],
-        help='Comma-separated batch sizes, e.g. "1,2,3"',
-    )
-    tvd_parser.add_argument("--num-shots", type=int, default=10**5)
-    tvd_parser.add_argument("--output", type=Path, required=True)
-    tvd_parser.add_argument(
-        "--no-auto-suffix",
-        action="store_true",
-        help="Overwrite output path instead of auto-incrementing suffix",
-    )
 
-    return parser
+@app.command()
+def run_time(
+    num_qubits: Annotated[int, typer.Option(help="Number of qubits")] = 12,
+    batch_sizes: Annotated[
+        list[int],
+        typer.Option(
+            help="Batch sizes",
+        ),
+    ] = [1, 2, 3],
+) -> None:
+    """Print estimated runtime for each batch size."""
+    runtime_dict: dict[int, float] = {}
+    for batch_size in batch_sizes:
+        runtime_dict[batch_size] = calculate_runtime(
+            batch_size=batch_size,
+            num_qubits=num_qubits,
+        )
+    print("Runtime for different batch sizes:")
+    pprint(runtime_dict)
 
 
-def main() -> None:
-    """CLI entry point for batch-size benchmarks."""
+@app.command()
+def run_tvd_vs_num_qubits(
+    output: Annotated[Path, typer.Argument(help="Output pickle file path")],
+    min_num_qubits: Annotated[int, typer.Option(help="Minimum number of qubits")] = 2,
+    max_num_qubits: Annotated[int, typer.Option(help="Maximum number of qubits")] = 12,
+    batch_sizes: Annotated[
+        list[int],
+        typer.Option(
+            help="Batch sizes",
+        ),
+    ] = [1, 2, 3],
+    num_shots: Annotated[int, typer.Option(help="Number of shots per circuit")] = 10**5,
+    auto_suffix: Annotated[
+        bool, typer.Option(help="Auto-incrementing output path if file exists")
+    ] = True,
+) -> None:
+    """Run circular-state TVD benchmark versus the number of qubits."""
     setup_warnings()
 
-    parser = build_parser()
-    args = parser.parse_args()
+    dict_batch_num_tvd: dict[int, dict[int, float]] = {}
+    for num_qubits in tqdm(range(min_num_qubits, max_num_qubits + 1)):
+        for batch_size in batch_sizes:
+            if num_qubits % batch_size != 0:
+                continue
 
-    match args.command:
-        case "run-circular":
-            result = run_circular_state(
-                num_qubits=args.num_qubits,
-                batch_size_list=args.batch_sizes,
-                sampler_tag_list=_all_sampler_tags(),
-                num_shots=args.num_shots,
+            tvd: float = calculate_metric(
+                batch_size=batch_size,
+                num_qubits=num_qubits,
+                sampler_tag=(True, True, True),
+                prepare_circ_fn=lambda n: prepare_circular_state_circuit(n, r=4),
+                metric_fn=lambda counts: calc_tvd(
+                    {k << (num_qubits - 2): 1 / 4 for k in range(4)},
+                    counts,
+                ),
+                num_shots=num_shots,
             )
-            pprint(result)
-            _save_pickle_with_optional_suffix(
-                payload=result,
-                output_filename=args.output,
-                auto_suffix=not args.no_auto_suffix,
-            )
-        case "run-ghz":
-            result = run_ghz_state(
-                num_qubits=args.num_qubits,
-                batch_size_list=args.batch_sizes,
-                sampler_tag_list=_all_sampler_tags(),
-                num_shots=args.num_shots,
-            )
-            pprint(result)
-            _save_pickle_with_optional_suffix(
-                payload=result,
-                output_filename=args.output,
-                auto_suffix=not args.no_auto_suffix,
-            )
-        case "run-time":
-            runtime_dict: dict[int, float] = {}
-            batch_size: int
-            for batch_size in args.batch_sizes:
-                runtime_dict[batch_size] = calculate_runtime(
-                    batch_size=batch_size,
-                    num_qubits=args.num_qubits,
-                )
-            print("Runtime for different batch sizes:")
-            pprint(runtime_dict)
-        case "run-tvd-vs-num-qubits":
-            min_num_qubits: int = args.min_num_qubits
-            max_num_qubits: int = args.max_num_qubits
-            batch_size_list: list[int] = args.batch_sizes
 
-            dict_batch_num_tvd: dict[int, dict[int, float]] = {}
-            for num_qubits in tqdm(range(min_num_qubits, max_num_qubits + 1)):
-                for batch_size in batch_size_list:
-                    if num_qubits % batch_size != 0:
-                        continue
+            if batch_size not in dict_batch_num_tvd:
+                dict_batch_num_tvd[batch_size] = {}
+            dict_batch_num_tvd[batch_size][num_qubits] = tvd
 
-                    tvd: float = calculate_metric(
-                        batch_size=batch_size,
-                        num_qubits=num_qubits,
-                        sampler_tag=(True, True, True),
-                        prepare_circ_fn=lambda n: prepare_circular_state_circuit(
-                            n, r=4
-                        ),
-                        metric_fn=lambda counts: calc_tvd(
-                            {k << (num_qubits - 2): 1 / 4 for k in range(4)},
-                            counts,
-                        ),
-                        num_shots=args.num_shots,
-                    )
-
-                    if batch_size not in dict_batch_num_tvd:
-                        dict_batch_num_tvd[batch_size] = {}
-                    dict_batch_num_tvd[batch_size][num_qubits] = tvd
-
-            pprint(dict_batch_num_tvd)
-            _save_pickle_with_optional_suffix(
-                payload=dict_batch_num_tvd,
-                output_filename=args.output,
-                auto_suffix=not args.no_auto_suffix,
-            )
-        case command:
-            raise ValueError(f"Unknown command: {command}")
+    pprint(dict_batch_num_tvd)
+    _save_pickle_with_optional_suffix(
+        payload=dict_batch_num_tvd,
+        output_filename=output,
+        auto_suffix=auto_suffix,
+    )
 
 
 if __name__ == "__main__":
-    main()
+    app()

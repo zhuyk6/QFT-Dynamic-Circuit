@@ -1,29 +1,30 @@
 """Plot process-fidelity benchmark results."""
 
-import argparse
 import json
 import math
 import re
 from collections import defaultdict
 from pathlib import Path
+from typing import Annotated
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import typer
+
+app = typer.Typer()
 
 
 def _load_benchmark_results(
     results_dir: Path,
 ) -> dict[int, dict[str, np.ndarray[tuple[int], np.dtype[np.floating]]]]:
     """Aggregate benchmark JSON files into mean/std series per batch size."""
-
     files = sorted(results_dir.glob("qft*.json"))
     pattern = re.compile(r"^qft(\d+)(?:_(\d+))?\.json$")
     agg: defaultdict[int, defaultdict[int, list[float]]] = defaultdict(
         lambda: defaultdict(list)
     )
 
-    fp: Path
     for fp in files:
         match = pattern.match(fp.name)
         if match is None:
@@ -42,7 +43,6 @@ def _load_benchmark_results(
             agg[batch_size][num_qubits].append(fid)
 
     stats: dict[int, dict[str, np.ndarray[tuple[int], np.dtype[np.floating]]]] = {}
-    n_dict: defaultdict[int, list[float]]
     for batch_size, n_dict in sorted(agg.items()):
         n_list: list[int] = sorted(n_dict.keys())
         mean_list: list[float] = []
@@ -68,10 +68,7 @@ def _snap_to_integer_x(
     x_max: int | None = None,
 ) -> list[tuple[float, float]]:
     """Keep only one point per integer x after rounding."""
-
     best: dict[int, tuple[float, float, float]] = {}
-    x_value: float
-    y_value: float
     for x_value, y_value in points:
         rounded_x: int = int(round(x_value))
         if x_min is not None and rounded_x < x_min:
@@ -93,7 +90,6 @@ def _snap_to_integer_x(
 
 def _load_baseline(baseline_csv: Path) -> dict[str, list[tuple[float, float]]]:
     """Load baseline curves from the two-row-header CSV export."""
-
     dataframe = pd.read_csv(baseline_csv, header=[0, 1])
     level0 = pd.Index(dataframe.columns.get_level_values(0), dtype="object")
     level1 = pd.Index(dataframe.columns.get_level_values(1), dtype="object")
@@ -126,7 +122,6 @@ def plot_result(
     output_filename: Path,
 ) -> None:
     """Plot fidelity results from benchmark JSON files and optional baselines."""
-
     if results_dir is None and baseline_csv is None:
         raise ValueError("Either `results_dir` or `baseline_csv` must be provided.")
 
@@ -136,8 +131,6 @@ def plot_result(
     fig, ax = plt.subplots(figsize=(10, 6))
 
     if baseline is not None:
-        method: str
-        data: list[tuple[float, float]]
         for method, data in baseline.items():
             x_list = [x for x, _ in data]
             y_list = [y for _, y in data]
@@ -146,7 +139,6 @@ def plot_result(
             ax.plot(x_list, y_list, label=method, marker="o", color=color, ls=linestyle)
 
     if results is not None:
-        batch_size: int
         for batch_size in sorted(results.keys()):
             x = results[batch_size]["n"]
             y = results[batch_size]["mean"]
@@ -163,23 +155,19 @@ def plot_result(
     fig.savefig(output_filename)
 
 
-def build_parser() -> argparse.ArgumentParser:
-    """Build the CLI parser for fidelity plotting."""
-
-    parser = argparse.ArgumentParser(description="Plot dynamic-QFT fidelity results.")
-    parser.add_argument("--results-dir", type=Path, required=False)
-    parser.add_argument("--baseline-csv", type=Path, required=False)
-    parser.add_argument("--output", type=Path, required=True)
-    return parser
-
-
-def main() -> None:
-    """CLI entry point."""
-
-    parser = build_parser()
-    args = parser.parse_args()
-    plot_result(args.results_dir, args.baseline_csv, args.output)
+@app.command()
+def main(
+    output: Annotated[Path, typer.Argument(help="Output plot file path")],
+    results_dir: Annotated[
+        Path | None, typer.Option(help="Directory of benchmark JSON files")
+    ] = None,
+    baseline_csv: Annotated[
+        Path | None, typer.Option(help="Baseline CSV file path")
+    ] = None,
+) -> None:
+    """Plot dynamic-QFT fidelity results."""
+    plot_result(results_dir, baseline_csv, output)
 
 
 if __name__ == "__main__":
-    main()
+    app()

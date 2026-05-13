@@ -10,15 +10,15 @@ For large n, a sampled estimator is used:
     F ~= (m/(m-1)) * [ (1/m) * sum_l sqrt(p_l) ]^2 - (1/(m*(m-1))) * sum_l p_l
 """
 
-import argparse
 import json
 import math
 import random
 import warnings
 from collections import Counter
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
+import typer
 from qiskit import QuantumCircuit
 from qiskit_ibm_runtime import Sampler
 from tqdm import tqdm
@@ -32,22 +32,12 @@ from qft_dynamic.tools.simulation import (
     sample_counts,
 )
 
+app = typer.Typer()
 
-def setup_warnings():
+
+def setup_warnings() -> None:
+    """Suppress noisy Qiskit warnings."""
     warnings.filterwarnings("ignore", module="qiskit")
-
-
-def parse_batch_sizes(value: str) -> list[int]:
-    """Parse comma-separated batch sizes such as "1,2,3"."""
-    try:
-        parsed = [int(x.strip()) for x in value.split(",") if x.strip()]
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError(f"Invalid batch size list: {value}") from exc
-    if not parsed:
-        raise argparse.ArgumentTypeError("Batch size list cannot be empty")
-    if any(v <= 0 for v in parsed):
-        raise argparse.ArgumentTypeError("Batch sizes must be positive integers")
-    return parsed
 
 
 def prepare_sigma_k_star(num_qubits: int, k: int) -> QuantumCircuit:
@@ -232,7 +222,7 @@ def run_benchmark_suite(
         while filename.exists():
             counter += 1
             filename = filename.with_name(
-                f"{output_filename.stem}_{counter}{output_filename.suffix}"
+                f"{output_filename.stem}_{counter}{filename.suffix}"
             )
 
     if noise_config is None:
@@ -262,78 +252,59 @@ def run_benchmark_suite(
     return filename
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Benchmark process fidelity for dynamic QFT."
-    )
-    parser.add_argument("--num-qubits", type=int, default=12)
-    parser.add_argument(
-        "--batch-sizes",
-        type=parse_batch_sizes,
-        default=[1, 2, 3],
-        help='Comma-separated batch sizes, e.g. "1,2,3"',
-    )
-    parser.add_argument(
-        "--mode",
-        type=str,
-        choices=["exact", "sample"],
-        default="sample",
-        help="exact: enumerate all k; sample: Monte Carlo estimator",
-    )
-    parser.add_argument("--num-shots", type=int, default=10**4)
-    parser.add_argument("--num-samples", type=int, default=20)
-    parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument(
-        "--gate-error",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-    )
-    parser.add_argument(
-        "--readout-error",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-    )
-    parser.add_argument(
-        "--thermal-relaxation",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-    )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        required=True,
-        help="Output JSON file path",
-    )
-    parser.add_argument(
-        "--no-auto-suffix",
-        action="store_true",
-        help="Overwrite output path instead of auto-incrementing suffix",
-    )
-    return parser
-
-
-def main() -> None:
+@app.command()
+def main(
+    output: Annotated[Path, typer.Argument(help="Output JSON file path")],
+    num_qubits: Annotated[int, typer.Option(help="Number of qubits")] = 12,
+    batch_sizes: Annotated[
+        list[int],
+        typer.Option(
+            help="Batch sizes",
+        ),
+    ] = [1, 2, 3],
+    mode: Annotated[
+        Literal["exact", "sample"],
+        typer.Option(help="exact: enumerate all k; sample: Monte Carlo estimator"),
+    ] = "sample",
+    num_shots: Annotated[int, typer.Option(help="Number of shots per circuit")] = 10**4,
+    num_samples: Annotated[
+        int, typer.Option(help="Number of samples for Monte Carlo estimator")
+    ] = 20,
+    seed: Annotated[int | None, typer.Option(help="Random seed")] = None,
+    gate_error: Annotated[bool, typer.Option(help="Enable gate error")] = True,
+    readout_error: Annotated[
+        bool,
+        typer.Option(help="Enable readout error"),
+    ] = True,
+    thermal_relaxation: Annotated[
+        bool,
+        typer.Option(
+            help="Enable thermal relaxation",
+        ),
+    ] = True,
+    auto_suffix: Annotated[
+        bool, typer.Option(help="Auto-incrementing output path if file exists")
+    ] = True,
+) -> None:
+    """Benchmark process fidelity for dynamic QFT."""
     setup_warnings()
 
-    parser = build_parser()
-    args = parser.parse_args()
-
     run_benchmark_suite(
-        num_qubits=args.num_qubits,
-        batch_size_list=args.batch_sizes,
-        mode=args.mode,
-        num_shots=args.num_shots,
-        num_samples=args.num_samples,
-        seed=args.seed,
-        output_filename=args.output,
-        auto_suffix=not args.no_auto_suffix,
+        num_qubits=num_qubits,
+        batch_size_list=batch_sizes,
+        mode=mode,
+        num_shots=num_shots,
+        num_samples=num_samples,
+        seed=seed,
+        output_filename=output,
+        auto_suffix=auto_suffix,
         noise_config=NoiseModelConfig(
-            gate_error=args.gate_error,
-            readout_error=args.readout_error,
-            thermal_relaxation=args.thermal_relaxation,
+            gate_error=gate_error,
+            readout_error=readout_error,
+            thermal_relaxation=thermal_relaxation,
         ),
     )
 
 
 if __name__ == "__main__":
-    main()
+    app()

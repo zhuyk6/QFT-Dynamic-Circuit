@@ -5,13 +5,14 @@ Here we compare two methods:
 - Delayed circuit: using a delay for measurement encoding, consider a modified readout error.
 """
 
-import argparse
 import json
 import warnings
 from collections import Counter, defaultdict
 from pathlib import Path
 from pprint import pprint
+from typing import Annotated
 
+import typer
 from qiskit import QuantumCircuit
 from tqdm import tqdm
 
@@ -32,8 +33,11 @@ from qft_dynamic.tools.transpile import (
     add_delay_before_measurement,
 )
 
+app = typer.Typer()
 
-def setup_warnings():
+
+def setup_warnings() -> None:
+    """Suppress noisy Qiskit warnings."""
     warnings.filterwarnings("ignore", module="qiskit")
 
 
@@ -176,7 +180,9 @@ def run_benchmark_suite(
         counter = 0
         while filename.exists():
             counter += 1
-            filename = filename.with_name(f"{filename.stem}_{counter}{filename.suffix}")
+            filename = filename.with_name(
+                f"{output_filename.stem}_{counter}{filename.suffix}"
+            )
 
     filename.parent.mkdir(parents=True, exist_ok=True)
     with open(filename, "w") as f_out:
@@ -186,70 +192,46 @@ def run_benchmark_suite(
     return filename
 
 
-def parse_batch_sizes(value: str) -> list[int]:
-    """Parse comma-separated batch sizes such as "1,2,3"."""
-    try:
-        parsed = [int(x.strip()) for x in value.split(",") if x.strip()]
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError(f"Invalid batch size list: {value}") from exc
-    if not parsed:
-        raise argparse.ArgumentTypeError("Batch size list cannot be empty")
-    if any(v <= 0 for v in parsed):
-        raise argparse.ArgumentTypeError("Batch sizes must be positive integers")
-    return parsed
-
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Benchmark measurement-encoding results."
-    )
-    parser.add_argument("--num-qubits", type=int, default=12)
-    parser.add_argument(
-        "--batch-sizes",
-        type=parse_batch_sizes,
-        default=[1, 2, 3],
-        help='Comma-separated batch sizes, e.g. "1,2,3"',
-    )
-    parser.add_argument(
-        "--delay-time",
-        type=float,
-        default=100e-9,
-        help="Delay time before measurement in seconds",
-    )
-    parser.add_argument("--num-shots", type=int, default=10**5)
-    parser.add_argument("--prob-meas1-prep0", type=float, default=0.001)
-    parser.add_argument("--prob-meas0-prep1", type=float, default=0.002)
-    parser.add_argument(
-        "--output",
-        type=Path,
-        required=True,
-        help="Output JSON file path",
-    )
-    parser.add_argument(
-        "--no-auto-suffix",
-        action="store_true",
-        help="Overwrite output path instead of auto-incrementing suffix",
-    )
-    return parser
-
-
-def main() -> None:
+@app.command()
+def main(
+    output: Annotated[Path, typer.Argument(help="Output JSON file path")],
+    num_qubits: Annotated[int, typer.Option(help="Number of qubits")] = 12,
+    batch_sizes: Annotated[
+        list[int],
+        typer.Option(
+            help="Batch sizes",
+        ),
+    ] = [1, 2, 3],
+    delay_time: Annotated[
+        float, typer.Option(help="Delay time before measurement in seconds")
+    ] = 100e-9,
+    num_shots: Annotated[int, typer.Option(help="Number of shots per circuit")] = 10**5,
+    prob_meas1_prep0: Annotated[
+        float,
+        typer.Option(help="Modified probability of measuring 1 when preparing 0"),
+    ] = 0.001,
+    prob_meas0_prep1: Annotated[
+        float,
+        typer.Option(help="Modified probability of measuring 0 when preparing 1"),
+    ] = 0.002,
+    auto_suffix: Annotated[
+        bool, typer.Option(help="Auto-incrementing output path when file exists")
+    ] = True,
+) -> None:
+    """Benchmark measurement-encoding results."""
     setup_warnings()
 
-    parser = build_parser()
-    args = parser.parse_args()
-
     run_benchmark_suite(
-        num_qubits=args.num_qubits,
-        batch_size_list=args.batch_sizes,
-        delay_time=args.delay_time,
-        num_shots=args.num_shots,
-        prob_meas1_prep0=args.prob_meas1_prep0,
-        prob_meas0_prep1=args.prob_meas0_prep1,
-        output_filename=args.output,
-        auto_suffix=not args.no_auto_suffix,
+        num_qubits=num_qubits,
+        batch_size_list=batch_sizes,
+        delay_time=delay_time,
+        num_shots=num_shots,
+        prob_meas1_prep0=prob_meas1_prep0,
+        prob_meas0_prep1=prob_meas0_prep1,
+        output_filename=output,
+        auto_suffix=auto_suffix,
     )
 
 
 if __name__ == "__main__":
-    main()
+    app()

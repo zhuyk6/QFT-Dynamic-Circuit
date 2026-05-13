@@ -1,11 +1,14 @@
 """Plot measurement-encoding benchmark results."""
 
-import argparse
 import json
 from pathlib import Path
+from typing import Annotated
 
 import matplotlib.pyplot as plt
 import numpy as np
+import typer
+
+app = typer.Typer()
 
 
 def plot_result(
@@ -13,7 +16,6 @@ def plot_result(
     savefig_filename: Path,
 ) -> None:
     """Plot the measurement-encoding benchmark JSON as grouped bars."""
-
     with open(results_filename, "r") as input_file:
         raw_dict: dict[str, dict[str, float]] = json.load(input_file)
     dict_tvd_batch_method = {int(k): v for k, v in raw_dict.items()}
@@ -24,7 +26,6 @@ def plot_result(
     width = 0.2
 
     fig, ax = plt.subplots(figsize=(10, 6))
-    method: str
     for index, method in enumerate(methods):
         method_values = [
             dict_tvd_batch_method[batch_size][method] for batch_size in batch_sizes
@@ -42,24 +43,14 @@ def plot_result(
     fig.savefig(savefig_filename)
 
 
-def build_parser() -> argparse.ArgumentParser:
-    """Build the CLI parser for measurement-encoding plotting."""
-
-    parser = argparse.ArgumentParser(
-        description="Plot measurement-encoding benchmark results."
-    )
-    parser.add_argument("--results", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
-    return parser
-
-
-def main() -> None:
-    """CLI entry point."""
-
-    parser = build_parser()
-    args = parser.parse_args()
-    plot_result(args.results, args.output)
+@app.command()
+def main(
+    results: Annotated[Path, typer.Argument(help="Benchmark results JSON file")],
+    output: Annotated[Path, typer.Argument(help="Output plot file path")],
+) -> None:
+    """Plot measurement-encoding benchmark results."""
+    plot_result(results, output)
 
 
 if __name__ == "__main__":
-    main()
+    app()

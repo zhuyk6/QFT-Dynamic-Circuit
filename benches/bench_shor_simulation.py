@@ -1,9 +1,11 @@
 """Run Qiskit simulation and save per-s histograms for Shor strict benchmark."""
 
-import argparse
 import logging
 import warnings
 from pathlib import Path
+from typing import Annotated
+
+import typer
 
 from qft_dynamic.shor_benchmark.simulation import (
     save_histograms,
@@ -11,6 +13,7 @@ from qft_dynamic.shor_benchmark.simulation import (
 )
 from qft_dynamic.shor_benchmark.types import BenchmarkInstance
 
+app = typer.Typer()
 logger = logging.getLogger(__name__)
 
 
@@ -44,81 +47,48 @@ def setup_logging(log_file: str | Path, verbose: bool = False):
         lib_logger.propagate = False
 
 
-def setup_warnings():
+def setup_warnings() -> None:
+    """Suppress noisy Qiskit warnings."""
     warnings.filterwarnings("ignore", module="qiskit")
 
 
-def main() -> None:
-    """CLI entry point for histogram simulation."""
-
-    parser: argparse.ArgumentParser = argparse.ArgumentParser(
-        description="Simulate per-s histograms for the Shor strict benchmark."
-    )
-    parser.add_argument("--n", type=int, required=True, help="Modulus N")
-    parser.add_argument("--a", type=int, required=True, help="Base a")
-    parser.add_argument("--r", type=int, required=True, help="Order r")
-    parser.add_argument("--m", type=int, required=True, help="Control qubit count")
-    parser.add_argument(
-        "--batch-size",
-        type=int,
-        required=True,
-        help="Tile size of the optimized QFT block",
-    )
-    parser.add_argument(
-        "--num-shots",
-        type=int,
-        default=4096,
-        help="Simulation shots per phase label s",
-    )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        required=True,
-        help="Output JSON path for simulated histograms",
-    )
-    parser.add_argument(
-        "--disable-gate-error",
-        action="store_true",
-        help="Disable gate error in the Aer noise model",
-    )
-    parser.add_argument(
-        "--disable-readout-error",
-        action="store_true",
-        help="Disable readout error in the Aer noise model",
-    )
-    parser.add_argument(
-        "--disable-thermal-relaxation",
-        action="store_true",
-        help="Disable thermal relaxation in the Aer noise model",
-    )
-    parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        help="Logging DEBUG mode",
-    )
-    args: argparse.Namespace = parser.parse_args()
-
-    setup_logging("logs/shor-simulation.log", args.verbose)
+@app.command()
+def main(
+    n: Annotated[int, typer.Argument(help="Modulus N")],
+    a: Annotated[int, typer.Argument(help="Base a")],
+    r: Annotated[int, typer.Argument(help="Order r")],
+    m: Annotated[int, typer.Argument(help="Control qubit count")],
+    batch_size: Annotated[
+        int, typer.Argument(help="Tile size of the optimized QFT block")
+    ],
+    output: Annotated[
+        Path, typer.Argument(help="Output JSON path for simulated histograms")
+    ],
+    num_shots: Annotated[
+        int, typer.Option(help="Simulation shots per phase label s")
+    ] = 4096,
+    gate_error: Annotated[bool, typer.Option(help="Enable gate error")] = True,
+    readout_error: Annotated[bool, typer.Option(help="Enable readout error")] = True,
+    thermal_relaxation: Annotated[
+        bool, typer.Option(help="Enable thermal relaxation")
+    ] = True,
+    verbose: Annotated[
+        bool,
+        typer.Option("-v", "--verbose", help="Logging DEBUG mode"),
+    ] = False,
+) -> None:
+    """Simulate per-s histograms for the Shor strict benchmark."""
+    setup_logging("logs/shor-simulation.log", verbose)
     setup_warnings()
 
     logger.info("Main Start...")
-    logger.debug(args)
+    logger.debug("args: n=%s a=%s r=%s m=%s batch_size=%s", n, a, r, m, batch_size)
 
-    instance: BenchmarkInstance = BenchmarkInstance(
-        n=args.n,
-        a=args.a,
-        r=args.r,
-        m=args.m,
-    )
-    gate_error: bool = not args.disable_gate_error
-    readout_error: bool = not args.disable_readout_error
-    thermal_relaxation: bool = not args.disable_thermal_relaxation
-
+    instance: BenchmarkInstance = BenchmarkInstance(n, a, r, m)
     histograms = simulate_histograms_for_instance(
         instance=instance,
-        batch_size=args.batch_size,
-        num_shots=args.num_shots,
+        batch_size=batch_size,
+        num_shots=num_shots,
         gate_error=gate_error,
         readout_error=readout_error,
         thermal_relaxation=thermal_relaxation,
@@ -126,17 +96,17 @@ def main() -> None:
     save_histograms(
         instance=instance,
         histograms=histograms,
-        output_path=args.output,
-        batch_size=args.batch_size,
-        num_shots=args.num_shots,
+        output_path=output,
+        batch_size=batch_size,
+        num_shots=num_shots,
         gate_error=gate_error,
         readout_error=readout_error,
         thermal_relaxation=thermal_relaxation,
     )
-    print(f"Saved simulated histograms to: {args.output}")
+    print(f"Saved simulated histograms to: {output}")
 
     logger.info("Main end.")
 
 
 if __name__ == "__main__":
-    main()
+    app()
