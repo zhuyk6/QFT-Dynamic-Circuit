@@ -14,6 +14,8 @@ dependencies = [
     "qiskit-ibm-runtime>=0.42.0",
     "qiskit[visualization]>=2.2.1",
     "sympy>=1.14.0",
+    "tqdm>=4.67.1",
+    "types-tqdm>=4.67.3.20260508",
 ]
 
 [dependency-groups]
