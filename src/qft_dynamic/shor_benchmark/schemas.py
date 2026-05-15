@@ -69,4 +69,4 @@ class StrictBenchmarkResultFileModel(BaseModel):
     m_mc: int
     seed: int
     result: CombinedCurveResult
-    simulation_histogram_file: str | None = None
+    experiments_histogram_files: list[Path]

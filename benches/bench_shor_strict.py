@@ -2,7 +2,7 @@
 
 This script computes strict metrics for finite-Q ideal and uniform baselines via
 Monte Carlo, arithmetic-ideal strict success via closed-form expression, and
-optionally a histogram-driven simulation baseline.
+optionally experiments via histograms.
 """
 
 import logging
@@ -49,16 +49,17 @@ def run_strict_benchmark(
     k_list: list[int],
     m_mc: int,
     seed: int,
-    histogram_path: Path | None = None,
+    histogram_paths: list[Path],
 ) -> CombinedCurveResult:
-    """Run strict benchmark for ideal, uniform, arithmetic, and simulation baselines.
+    """Run strict benchmark for ideal, uniform, arithmetic baselines,
+    and optionally experiments via histograms.
 
     Args:
         instance: Benchmark instance.
         k_list: Sample-count values K.
         m_mc: Monte Carlo trial count per K.
         seed: Random seed.
-        histogram_path: Optional JSON file containing per-s histograms.
+        histogram_paths: Optional JSON file containing per-s histograms.
 
     Returns:
         Combined strict benchmark results.
@@ -93,26 +94,28 @@ def run_strict_benchmark(
         estimator=arithmetic_estimator,
         k_list=k_list,
     )
-    simulation_curve: StrictCurveResult | None = None
-    if histogram_path is not None:
-        simulation_sampler: HistogramSampler = HistogramSampler.from_file(
-            histogram_path=histogram_path,
+
+    experiments_curves: list[StrictCurveResult] = []
+    for filepath in histogram_paths:
+        histogram_sampler: HistogramSampler = HistogramSampler.from_file(
+            histogram_path=filepath,
             instance=instance,
         )
-        simulation_curve = evaluate_strict_curve(
+        exp_curve = evaluate_strict_curve(
             instance=instance,
-            sampler=simulation_sampler,
+            sampler=histogram_sampler,
             postprocessor=postprocessor,
             k_list=k_list,
             m_mc=m_mc,
             seed=seed + 2,
         )
+        experiments_curves.append(exp_curve)
 
     combined: CombinedCurveResult = CombinedCurveResult(
         ideal=ideal_curve,
         uniform=uniform_curve,
         arithmetic=arithmetic_curve,
-        simulation=simulation_curve,
+        experiments=experiments_curves,
     )
     return combined
 
@@ -130,15 +133,15 @@ def main(
     ] = [1, 2, 4, 8, 16],
     m_mc: Annotated[int, typer.Option(help="Monte Carlo trials for each K")] = 5000,
     seed: Annotated[int, typer.Option(help="Random seed")] = 7,
-    simulation_histograms: Annotated[
-        Path | None,
-        typer.Option(help="JSON file with per-s histograms"),
-    ] = None,
+    experiments_histograms: Annotated[
+        list[Path],
+        typer.Option(help="JSON files with per-s histograms"),
+    ] = [],
     verbose: Annotated[
         bool, typer.Option("-v", "--verbose", help="Enable debug logging")
     ] = False,
 ) -> None:
-    """Shor strict benchmark (ideal, uniform, arithmetic ideal)."""
+    """Shor strict benchmark: ideal, uniform, arithmetic ideal baselines and experiments results."""
     setup_logging(verbose)
 
     logger.debug(
@@ -159,7 +162,7 @@ def main(
         k_list=k_list,
         m_mc=m_mc,
         seed=seed,
-        histogram_path=simulation_histograms,
+        histogram_paths=experiments_histograms,
     )
 
     output_payload: StrictBenchmarkResultFileModel = StrictBenchmarkResultFileModel(
@@ -168,9 +171,7 @@ def main(
         m_mc=m_mc,
         seed=seed,
         result=result,
-        simulation_histogram_file=(
-            str(simulation_histograms) if simulation_histograms is not None else None
-        ),
+        experiments_histogram_files=experiments_histograms,
     )
 
     output.parent.mkdir(parents=True, exist_ok=True)

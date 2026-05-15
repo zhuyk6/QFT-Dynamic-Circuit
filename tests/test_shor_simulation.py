@@ -128,17 +128,19 @@ def test_strict_benchmark_output_schema_round_trip(tmp_path: Path) -> None:
                         }
                     },
                     "arithmetic": {"p_ord_strict_by_k": {"1": 0.5}},
-                    "simulation": {
-                        "metrics_by_k": {
-                            "1": {
-                                "p_ord_strict": 0.75,
-                                "p_wrong": 0.0,
-                                "p_null": 0.25,
+                    "experiments": [
+                        {
+                            "metrics_by_k": {
+                                "1": {
+                                    "p_ord_strict": 0.75,
+                                    "p_wrong": 0.0,
+                                    "p_null": 0.25,
+                                }
                             }
                         }
-                    },
+                    ],
                 },
-                "simulation_histogram_file": "/tmp/example.json",
+                "experiments_histogram_files": ["/tmp/example.json"],
             }
         ),
         encoding="utf-8",
@@ -151,4 +153,5 @@ def test_strict_benchmark_output_schema_round_trip(tmp_path: Path) -> None:
     )
 
     assert loaded.instance.q == 4
-    assert loaded.result.simulation is not None
+    assert len(loaded.result.experiments) == 1
+    assert len(loaded.experiments_histogram_files) == 1

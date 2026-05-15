@@ -93,10 +93,10 @@ class CombinedCurveResult:
         ideal: Finite-Q ideal baseline curve.
         uniform: Uniform baseline curve.
         arithmetic: Arithmetic-ideal baseline curve.
-        simulation: Optional histogram-driven simulation baseline curve.
+        experiments: Experiment curves.
     """
 
     ideal: StrictCurveResult
     uniform: StrictCurveResult
     arithmetic: ArithmeticCurveResult
-    simulation: StrictCurveResult | None = None
+    experiments: list[StrictCurveResult]
