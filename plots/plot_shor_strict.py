@@ -6,6 +6,7 @@ from typing import Annotated
 import matplotlib.pyplot as plt
 import typer
 from matplotlib.axes import Axes
+from matplotlib_config import PlotConfig, configure_matplotlib, get_latex_figsize
 
 from qft_dynamic.shor_benchmark import (
     ArithmeticCurveResult,
@@ -15,6 +16,8 @@ from qft_dynamic.shor_benchmark import (
 )
 
 app = typer.Typer()
+PLOT_DIR: Path = Path(__file__).resolve().parent
+PLOT_CONFIG: PlotConfig = configure_matplotlib(PLOT_DIR / "plot_config.toml")
 
 
 def load_data(
@@ -56,7 +59,6 @@ def plot_benchmark(
     arithmetic_curve: ArithmeticCurveResult,
     instance: BenchmarkInstance,
     output_path: Path,
-    dpi: int,
     experiments_labels: list[str] | None = None,
 ) -> None:
     """Plot benchmark results and save to output_path.
@@ -71,12 +73,12 @@ def plot_benchmark(
         experiments_labels: Optional list of labels for experiments.
     """
     colors: dict[str, str] = {
-        "ideal": "#1f77b4",
-        "uniform": "#d62728",
-        "arithmetic": "#2ca02c",
-        "exp0": "#ff7f0e",
-        "exp1": "#9467bd",
-        "exp2": "#8c564b",
+        "ideal": "C0",
+        "uniform": "C1",
+        "arithmetic": "C2",
+        "exp0": "C3",
+        "exp1": "C4",
+        "exp2": "C5",
     }
     metric_labels: dict[str, str] = {
         "p_ord_strict": "Success",
@@ -84,7 +86,13 @@ def plot_benchmark(
         "p_null": "Reject",
     }
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    figsize: tuple[float, float] = get_latex_figsize(
+        PLOT_CONFIG,
+        width="text",
+        fraction=0.95,
+        height_ratio=0.42,
+    )
+    fig, axes = plt.subplots(1, 2, figsize=figsize)
 
     # --- Left panel: P_ord_strict vs K ---
     def get_label(name: str) -> str:
@@ -109,7 +117,6 @@ def plot_benchmark(
             marker=get_mark(name),
             color=colors.get(name),
             label=get_label(name),
-            linewidth=1.5,
         )
 
     name = "arithmetic"
@@ -118,10 +125,9 @@ def plot_benchmark(
         k_list,
         y_vals,
         marker=None,
-        color=colors.get(name, "#2ca02c"),
+        color=colors.get(name, "C2"),
         linestyle="--",
         label=name.title(),
-        linewidth=1.5,
     )
 
     ax1.set_xscale("log", base=2)
@@ -131,7 +137,7 @@ def plot_benchmark(
     ax1.set_xlabel("K")
     ax1.set_ylabel("$P_{\\rm ord,strict}^{(K)}$")
     ax1.set_title("Strict Order-Recovery Success")
-    ax1.legend(fontsize=9)
+    ax1.legend()
     ax1.grid(True, alpha=0.3)
     ax1.set_ylim(-0.05, 1.05)
 
@@ -150,7 +156,7 @@ def plot_benchmark(
         k_positions,
         success,
         bar_width,
-        color="#2ca02c",
+        color="C2",
         label=metric_labels["p_ord_strict"],
     )
     ax2.bar(
@@ -158,7 +164,7 @@ def plot_benchmark(
         wrong,
         bar_width,
         bottom=success,
-        color="#d62728",
+        color="C0",
         label=metric_labels["p_wrong"],
     )
     bottom_wrong: list[float] = [s + w for s, w in zip(success, wrong)]
@@ -167,7 +173,7 @@ def plot_benchmark(
         null_,
         bar_width,
         bottom=bottom_wrong,
-        color="#7f7f7f",
+        color="C1",
         label=metric_labels["p_null"],
     )
 
@@ -176,7 +182,7 @@ def plot_benchmark(
     ax2.set_xlabel("K")
     ax2.set_ylabel("Probability")
     ax2.set_title(f"{get_label(name)} — Breakdown")
-    ax2.legend(fontsize=9)
+    ax2.legend()
     ax2.set_ylim(0, 1.05)
 
     n_val: int = instance.n
@@ -186,13 +192,10 @@ def plot_benchmark(
     q_val: int = instance.q
     fig.suptitle(
         f"Shor Strict — Instance (N={n_val}, a={a_val}, r={r_val}, m={m_val}, Q={q_val})",
-        fontsize=11,
-        y=1.02,
     )
 
-    fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path, dpi=dpi, bbox_inches="tight")
+    fig.savefig(output_path)
     plt.close(fig)
 
 
@@ -200,7 +203,6 @@ def plot_benchmark(
 def main(
     input: Annotated[Path, typer.Argument(help="Path to the benchmark JSON file")],
     output: Annotated[Path, typer.Argument(help="Path to save the output plot")],
-    dpi: Annotated[int, typer.Option(help="Output image DPI")] = 150,
     experiments_labels: Annotated[
         list[str] | None, typer.Option(help="Experiments labels")
     ] = None,
@@ -214,7 +216,6 @@ def main(
         arithmetic_curve=arithmetic_curve,
         instance=instance,
         output_path=output,
-        dpi=dpi,
         experiments_labels=experiments_labels,
     )
 

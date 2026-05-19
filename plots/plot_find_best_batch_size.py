@@ -7,8 +7,11 @@ from typing import Annotated
 import matplotlib.pyplot as plt
 import typer
 from matplotlib.axes import Axes
+from matplotlib_config import PlotConfig, configure_matplotlib, get_latex_figsize
 
 app = typer.Typer()
+PLOT_DIR: Path = Path(__file__).resolve().parent
+PLOT_CONFIG: PlotConfig = configure_matplotlib(PLOT_DIR / "plot_config.toml")
 
 
 def plot_tvd_vs_batch_size_for_different_samplers(
@@ -19,8 +22,13 @@ def plot_tvd_vs_batch_size_for_different_samplers(
     with open(filename, "rb") as input_file:
         dict_sampler_batch_tvd: dict[str, dict[int, float]] = pickle.load(input_file)
 
-    fig, axes = plt.subplots(4, 2, figsize=(10, 10))
-    fig.subplots_adjust(wspace=0.3, hspace=1.0)
+    figsize: tuple[float, float] = get_latex_figsize(
+        PLOT_CONFIG,
+        width="text",
+        fraction=0.95,
+        height_ratio=1.25,
+    )
+    fig, axes = plt.subplots(4, 2, figsize=figsize)
 
     for index, (sampler_key, batch_tvd) in enumerate(dict_sampler_batch_tvd.items()):
         ax: Axes = axes[index // 2, index % 2]
@@ -45,7 +53,13 @@ def plot_tvd_vs_num_qubits_for_different_batch_sizes(
     with open(filename, "rb") as input_file:
         dict_batch_num_tvd: dict[int, dict[int, float]] = pickle.load(input_file)
 
-    fig, ax = plt.subplots(figsize=(8, 6))
+    figsize: tuple[float, float] = get_latex_figsize(
+        PLOT_CONFIG,
+        width="column",
+        fraction=0.95,
+        height_ratio=0.75,
+    )
+    fig, ax = plt.subplots(figsize=figsize)
     markers = ["o", "s", "^", "D", "v", "P", "*"]
     linestyles = ["-", "--", "-.", ":"]
 

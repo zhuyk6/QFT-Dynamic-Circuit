@@ -11,8 +11,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import typer
+from matplotlib_config import PlotConfig, configure_matplotlib, get_latex_figsize
 
 app = typer.Typer()
+PLOT_DIR: Path = Path(__file__).resolve().parent
+PLOT_CONFIG: PlotConfig = configure_matplotlib(PLOT_DIR / "plot_config.toml")
 
 
 def _load_benchmark_results(
@@ -128,13 +131,19 @@ def plot_result(
     results = _load_benchmark_results(results_dir) if results_dir is not None else None
     baseline = _load_baseline(baseline_csv) if baseline_csv is not None else None
 
-    fig, ax = plt.subplots(figsize=(10, 6))
+    figsize: tuple[float, float] = get_latex_figsize(
+        PLOT_CONFIG,
+        width="text",
+        fraction=0.95,
+        height_ratio=0.62,
+    )
+    fig, ax = plt.subplots(figsize=figsize)
 
     if baseline is not None:
         for method, data in baseline.items():
             x_list = [x for x, _ in data]
             y_list = [y for _, y in data]
-            color: str = "#00bfbf" if method.startswith("unitary") else "#9c009c"
+            color: str = "C0" if method.startswith("unitary") else "C1"
             linestyle: str = "dashed" if method.endswith("no DD") else "-"
             ax.plot(x_list, y_list, label=method, marker="o", color=color, ls=linestyle)
 
@@ -143,9 +152,7 @@ def plot_result(
             x = results[batch_size]["n"]
             y = results[batch_size]["mean"]
             yerr = results[batch_size]["std"]
-            plt.errorbar(
-                x, y, yerr=yerr, marker="x", label=f"batch size = {batch_size}"
-            )
+            ax.errorbar(x, y, yerr=yerr, marker="x", label=f"batch size = {batch_size}")
 
     ax.set_xlim(2, 12 if baseline is None else 40)
     ax.set_ylim(0, 1)
