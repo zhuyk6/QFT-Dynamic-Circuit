@@ -1,0 +1,4 @@
+interface:
+  display_name: "Matplotlib Plotting"
+  short_description: "Create publication-ready Matplotlib figures"
+  default_prompt: "Use $matplotlib to create a publication-ready Matplotlib figure."
