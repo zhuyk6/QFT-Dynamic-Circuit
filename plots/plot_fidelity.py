@@ -152,7 +152,7 @@ def plot_result(
             x = results[batch_size]["n"]
             y = results[batch_size]["mean"]
             yerr = results[batch_size]["std"]
-            ax.errorbar(x, y, yerr=yerr, marker="x", label=f"batch size = {batch_size}")
+            ax.errorbar(x, y, yerr=yerr, marker="x", label=f"batch size = {batch_size}", color=f"C{batch_size + 1}")
 
     ax.set_xlim(2, 12 if baseline is None else 40)
     ax.set_ylim(0, 1)
