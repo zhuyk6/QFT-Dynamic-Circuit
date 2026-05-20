@@ -94,10 +94,10 @@ def _snap_to_integer_x(
 def _load_baseline(baseline_csv: Path) -> dict[str, list[tuple[float, float]]]:
     """Load baseline curves from the two-row-header CSV export."""
     dataframe = pd.read_csv(baseline_csv, header=[0, 1])
-    level0 = pd.Index(dataframe.columns.get_level_values(0), dtype="object")
-    level1 = pd.Index(dataframe.columns.get_level_values(1), dtype="object")
-    level0 = level0.to_series().replace(r"^Unnamed:.*$", pd.NA, regex=True).ffill()
-    level1 = level1.to_series().replace(r"^Unnamed:.*$", pd.NA, regex=True)
+    level0_idx = pd.Index(dataframe.columns.get_level_values(0), dtype="object")
+    level1_idx = pd.Index(dataframe.columns.get_level_values(1), dtype="object")
+    level0 = level0_idx.to_series().replace(r"^Unnamed:.*$", pd.NA, regex=True).ffill()
+    level1 = level1_idx.to_series().replace(r"^Unnamed:.*$", pd.NA, regex=True)
     dataframe.columns = pd.MultiIndex.from_arrays([level0, level1])
 
     methods = [m for m in dataframe.columns.get_level_values(0).unique()]

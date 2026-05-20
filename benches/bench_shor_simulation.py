@@ -17,7 +17,7 @@ app = typer.Typer()
 logger = logging.getLogger(__name__)
 
 
-def setup_logging(log_file: str | Path, verbose: bool = False):
+def setup_logging(log_file: str | Path, verbose: bool = False) -> None:
     """Setup logging config."""
     level = logging.DEBUG if verbose else logging.INFO
 

@@ -32,5 +32,7 @@ def calc_fidelity(p: Mapping[int, float], q: Mapping[int, float]) -> float:
     fidelity(p, q) = sum(sqrt(p_i * q_i))^2
     """
     union_keys: set[int] = set(p.keys()) | set(q.keys())
-    fidelity_sum = sum((p.get(k, 0.0) * q.get(k, 0.0)) ** 0.5 for k in union_keys)
+    fidelity_sum: float = sum(
+        (p.get(k, 0.0) * q.get(k, 0.0)) ** 0.5 for k in union_keys
+    )
     return fidelity_sum**2

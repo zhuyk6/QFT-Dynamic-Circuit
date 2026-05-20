@@ -6,6 +6,7 @@ from typing import Annotated
 import matplotlib.pyplot as plt
 import typer
 from matplotlib.axes import Axes
+from matplotlib.ticker import ScalarFormatter
 from matplotlib_config import PlotConfig, configure_matplotlib, get_latex_figsize
 
 from qft_dynamic.shor_benchmark import (
@@ -133,7 +134,7 @@ def plot_benchmark(
     ax1.set_xscale("log", base=2)
     ax1.set_xticks(k_list)
     ax1.set_xticklabels([str(k) for k in k_list])
-    ax1.get_xaxis().set_major_formatter(plt.ScalarFormatter())
+    ax1.get_xaxis().set_major_formatter(ScalarFormatter())
     ax1.set_xlabel("K")
     ax1.set_ylabel("$P_{\\rm ord,strict}^{(K)}$")
     ax1.set_title("Strict Order-Recovery Success")

@@ -12,7 +12,7 @@ from qiskit_ibm_runtime.transpiler.passes.scheduling import (
 )
 
 
-class UnrollIfTrue(TransformationPass):
+class UnrollIfTrue(TransformationPass):  # type: ignore[misc]
     """
     A transpiler pass that unrolls all IfElseOp blocks,
     keeping only the 'true' branch.
@@ -88,7 +88,7 @@ def generate_pass_manager(backend: GenericBackendV2) -> PassManager:
         routing_method="none",
     )
     durations = backend.target.durations()
-    pm.scheduling = PassManager(  # type: ignore
+    pm.scheduling = PassManager(  # ty: ignore[unresolved-attribute]
         [
             ASAPScheduleAnalysis(durations),
             PadDelay(durations),
@@ -98,7 +98,7 @@ def generate_pass_manager(backend: GenericBackendV2) -> PassManager:
     return pm
 
 
-class DelayMeasurement(TransformationPass):
+class DelayMeasurement(TransformationPass):  # type: ignore[misc]
     """A transpiler pass that inserts a Delay right before each Measure."""
 
     def __init__(self, delay_time: float):

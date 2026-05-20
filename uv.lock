@@ -2,7 +2,8 @@ version = 1
 revision = 3
 requires-python = ">=3.13"
 resolution-markers = [
-    "python_full_version >= '3.14'",
+    "python_full_version >= '3.15'",
+    "python_full_version == '3.14.*'",
     "python_full_version < '3.14'",
 ]
 
@@ -512,7 +513,8 @@ name = "google-api-core"
 version = "2.25.2"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
 resolution-markers = [
-    "python_full_version >= '3.14'",
+    "python_full_version >= '3.15'",
+    "python_full_version == '3.14.*'",
 ]
 dependencies = [
     { name = "google-auth", marker = "python_full_version >= '3.14'" },
@@ -1040,6 +1042,18 @@ wheels = [
 ]
 
 [[package]]
+name = "pandas-stubs"
+version = "3.0.0.260204"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/27/1d/297ff2c7ea50a768a2247621d6451abb2a07c0e9be7ca6d36ebe371658e5/pandas_stubs-3.0.0.260204.tar.gz", hash = "sha256:bf9294b76352effcffa9cb85edf0bed1339a7ec0c30b8e1ac3d66b4228f1fbc3", size = 109383, upload-time = "2026-02-04T15:17:17.247Z" }
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/7c/2f/f91e4eee21585ff548e83358332d5632ee49f6b2dcd96cb5dca4e0468951/pandas_stubs-3.0.0.260204-py3-none-any.whl", hash = "sha256:5ab9e4d55a6e2752e9720828564af40d48c4f709e6a2c69b743014a6fcb6c241", size = 168540, upload-time = "2026-02-04T15:17:15.615Z" },
+]
+
+[[package]]
 name = "parso"
 version = "0.8.5"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
@@ -1462,6 +1476,7 @@ source = { editable = "." }
 dependencies = [
     { name = "cirq" },
     { name = "matplotlib" },
+    { name = "pandas-stubs" },
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "qiskit", extra = ["visualization"] },
@@ -1486,6 +1501,7 @@ dev = [
 requires-dist = [
     { name = "cirq", specifier = ">=1.6.1" },
     { name = "matplotlib", specifier = ">=3.10.6" },
+    { name = "pandas-stubs", specifier = ">=3.0.0.260204" },
     { name = "pydantic", specifier = ">=2.12.0" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "qiskit", extras = ["visualization"], specifier = ">=2.2.1" },

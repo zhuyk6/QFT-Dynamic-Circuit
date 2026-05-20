@@ -72,7 +72,7 @@ def load_hardware_config(file_path: Path) -> HardwareConfig:
     return config  # type: ignore
 
 
-def _build_target(coupling_map: CouplingMap, hardware_config: HardwareConfig):
+def _build_target(coupling_map: CouplingMap, hardware_config: HardwareConfig) -> Target:
     n_qubits = coupling_map.size()
 
     # load hardware parameters from `hardware_config`

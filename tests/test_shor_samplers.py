@@ -164,7 +164,7 @@ def test_finite_q_ideal_sampler_handles_large_m_without_enumerating_q() -> None:
     assert 0 <= sampled_y < instance.q
 
 
-def test_histogram_sampler():
+def test_histogram_sampler() -> None:
     """Histogram sampler should match the closed-form distribution."""
 
     cnt: Counter[int] = Counter(
