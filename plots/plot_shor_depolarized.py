@@ -221,11 +221,7 @@ def plot_robustness_curve(
 
     instance: BenchmarkInstance = data.instance
     fig.suptitle(
-        (
-            "Instance "
-            f"(N={instance.n}, a={instance.a}, r={instance.r}, "
-            f"m={instance.m}, Q={instance.q})"
-        ),
+        (f"Instance (N={instance.n}, a={instance.a}, r={instance.r}, m={instance.m})"),
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
