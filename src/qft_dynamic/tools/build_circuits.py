@@ -10,7 +10,9 @@ from .build_backend import HardwareConfig
 logger = logging.getLogger(__name__)
 
 
-def qft_unitary(n: int, /, measure: bool = False) -> QuantumCircuit:
+def qft_unitary(
+    n: int, /, measure: bool = False, do_swap: bool = False
+) -> QuantumCircuit:
     """
     生成一个n-qubit的标准酉变换QFT线路。
     """
@@ -28,6 +30,11 @@ def qft_unitary(n: int, /, measure: bool = False) -> QuantumCircuit:
         # 为了可视化，分隔每一步
         if qubit < n - 1:
             circuit.barrier()
+
+    # do swap
+    if do_swap:
+        for i in range(n // 2):
+            circuit.swap(i, n - 1 - i)
 
     if measure:
         c_reg = ClassicalRegister(n, "C")
