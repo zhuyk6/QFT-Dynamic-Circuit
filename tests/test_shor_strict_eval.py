@@ -2,7 +2,11 @@
 
 import random
 
-from qft_dynamic.shor_benchmark.samplers import ArithmeticIdealEstimator, UniformSampler
+from qft_dynamic.shor_benchmark.samplers import (
+    ArithmeticIdealEstimator,
+    FiniteQIdealSampler,
+    UniformSampler,
+)
 from qft_dynamic.shor_benchmark.strict_eval import (
     evaluate_arithmetic_curve,
     evaluate_strict_metrics_for_k,
@@ -43,3 +47,31 @@ def test_evaluate_arithmetic_curve_returns_all_k_values() -> None:
     curve = evaluate_arithmetic_curve(estimator=estimator, k_list=[1, 2, 4, 8])
 
     assert sorted(curve.p_ord_strict_by_k.keys()) == [1, 2, 4, 8]
+
+
+def test_large_prime_order_instance_has_high_ideal_strict_success() -> None:
+    """Large prime-order finite-Q samples should recover the known order."""
+
+    instance: BenchmarkInstance = BenchmarkInstance(
+        n=22150150249,
+        a=621536679,
+        r=922922927,
+        m=72,
+    )
+    sampler: FiniteQIdealSampler = FiniteQIdealSampler(instance=instance)
+    postprocessor: DefaultStrictPostprocessor = DefaultStrictPostprocessor(
+        instance=instance
+    )
+    rng: random.Random = random.Random(7)
+
+    metrics = evaluate_strict_metrics_for_k(
+        instance=instance,
+        sampler=sampler,
+        postprocessor=postprocessor,
+        k=16,
+        m_mc=20,
+        rng=rng,
+    )
+
+    assert metrics.p_ord_strict == 1.0
+    assert metrics.p_wrong == 0.0

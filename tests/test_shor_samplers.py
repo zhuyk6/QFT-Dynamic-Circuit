@@ -164,6 +164,35 @@ def test_finite_q_ideal_sampler_handles_large_m_without_enumerating_q() -> None:
     assert 0 <= sampled_y < instance.q
 
 
+def test_bitwise_sampler_reduces_large_phases_with_integer_arithmetic() -> None:
+    """Large-register phase reduction should retain low-order phase bits."""
+
+    instance: BenchmarkInstance = BenchmarkInstance(
+        n=22150150249,
+        a=621536679,
+        r=922922927,
+        m=72,
+    )
+    sampler: FiniteQIdealSampler = FiniteQIdealSampler(
+        instance=instance,
+        sample_method="bitwise",
+    )
+    s_value: int = 144272509
+    qubit_index: int = 71
+
+    actual_phase: float = sampler._phase_mod_1(
+        s=s_value,
+        qubit_index=qubit_index,
+        correction_numerator=0,
+        correction_denominator_exponent=1,
+    )
+    exact_phase: float = ((s_value << qubit_index) % instance.r) / instance.r
+    float_phase: float = ((s_value / instance.r) * (2**qubit_index)) % 1.0
+
+    assert abs(actual_phase - exact_phase) < 1e-15
+    assert abs(float_phase - exact_phase) > 0.1
+
+
 def test_histogram_sampler() -> None:
     """Histogram sampler should match the closed-form distribution."""
 

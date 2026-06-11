@@ -124,6 +124,42 @@ class FiniteQIdealSampler:
         sampled_bit: int = 0 if rng.random() < probability_zero else 1
         return sampled_bit
 
+    def _phase_mod_1(
+        self,
+        s: int,
+        qubit_index: int,
+        correction_numerator: int,
+        correction_denominator_exponent: int,
+    ) -> float:
+        """Compute the corrected phase exponent modulo one.
+
+        The semiclassical inverse-QFT rule needs
+        ``s * 2**qubit_index / r - correction`` modulo one.  Computing this
+        expression directly as a float loses low-order phase bits for large
+        control registers, so the expression is first reduced exactly with
+        integer arithmetic.
+
+        Args:
+            s: Phase label in [0, r - 1].
+            qubit_index: Control-qubit index for the current measurement.
+            correction_numerator: Numerator of the binary feed-forward
+                correction.
+            correction_denominator_exponent: Exponent ``e`` such that the
+                correction denominator is ``2**e``.
+
+        Returns:
+            Corrected phase exponent in the half-open interval [0, 1).
+        """
+
+        correction_denominator: int = 1 << correction_denominator_exponent
+        denominator: int = self.instance.r * correction_denominator
+        numerator_mod: int = (
+            (s << qubit_index) * correction_denominator
+            - correction_numerator * self.instance.r
+        ) % denominator
+        phase_mod_1: float = numerator_mod / denominator
+        return phase_mod_1
+
     def _sample_y_by_bitwise(self, s: int, rng: random.Random) -> int:
         """Sample y using the semiclassical inverse-QFT measurement rule.
 
@@ -135,19 +171,23 @@ class FiniteQIdealSampler:
             Sampled integer y in [0, Q - 1].
         """
 
-        phase_fraction: float = s / self.instance.r
         sampled_y: int = 0
         place_value: int = 1
 
         # Classical feed-forward phase accumulated from already sampled lower
-        # significance bits in the semiclassical inverse-QFT picture.
-        phase_correction: float = 0.0
+        # significance bits. Store it as correction_numerator / 2**e so large
+        # registers do not lose phase information before the modulo reduction.
+        correction_numerator: int = 0
+        correction_denominator_exponent: int = 1
 
         qubit_index: int
         for qubit_index in range(self.instance.m - 1, -1, -1):
-            phase_exponent: float = (
-                phase_fraction * (2**qubit_index)
-            ) - phase_correction
+            phase_exponent: float = self._phase_mod_1(
+                s=s,
+                qubit_index=qubit_index,
+                correction_numerator=correction_numerator,
+                correction_denominator_exponent=correction_denominator_exponent,
+            )
             sampled_bit: int = self._sample_bit(
                 phase_exponent=phase_exponent,
                 rng=rng,
@@ -155,7 +195,10 @@ class FiniteQIdealSampler:
             sampled_y += sampled_bit * place_value
             place_value *= 2
 
-            phase_correction = (phase_correction + (sampled_bit / 2.0)) / 2.0
+            correction_denominator_exponent += 1
+            correction_numerator += sampled_bit * (
+                1 << (correction_denominator_exponent - 2)
+            )
 
         return sampled_y
 
