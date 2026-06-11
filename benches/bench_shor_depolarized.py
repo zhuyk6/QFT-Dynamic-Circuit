@@ -18,6 +18,7 @@ from typing import Annotated, Literal, TypeAlias
 
 import numpy as np
 import typer
+from pydantic import BaseModel
 
 from qft_dynamic.shor_benchmark.samplers import FiniteQIdealSampler, UniformSampler
 from qft_dynamic.shor_benchmark.strict_eval import evaluate_strict_curve
@@ -28,7 +29,10 @@ from qft_dynamic.shor_benchmark.types import (
     StrictMetrics,
 )
 
-app = typer.Typer()
+app = typer.Typer(
+    no_args_is_help=True,
+    help="Run depolarized finite-Q Shor strict robustness analysis.",
+)
 logger: logging.Logger = logging.getLogger(__name__)
 LambdaCurveResult: TypeAlias = tuple[float, StrictCurveResult]
 
@@ -229,39 +233,25 @@ def build_output_payload(
     return payload
 
 
-@app.command()
 def main(
-    n: Annotated[int, typer.Argument(help="Modulus N")],
-    a: Annotated[int, typer.Argument(help="Base a")],
-    r: Annotated[int, typer.Argument(help="Order r")],
-    m: Annotated[int, typer.Argument(help="Control register qubit count")],
-    output: Annotated[Path, typer.Argument(help="Output JSON path")],
-    k_list: Annotated[list[int], typer.Option(help="K values")] = [1, 2, 4, 8, 16],
-    num_lambdas: Annotated[
-        int,
-        typer.Option(help="Number of linspace(0, 1, num_lambdas) lambda values", min=2),
-    ] = 11,
-    m_mc: Annotated[int, typer.Option(help="Monte Carlo trials for each K")] = 5000,
-    seed: Annotated[int, typer.Option(help="Random seed")] = 7,
-    sample_method: Annotated[
-        Literal["bitwise", "enumerate"],
-        typer.Option(help="Finite-Q ideal sampling method"),
-    ] = "bitwise",
-    verbose: Annotated[
-        bool, typer.Option("-v", "--verbose", help="Enable debug logging")
-    ] = False,
-) -> None:
+    instance: BenchmarkInstance,
+    output: Path,
+    k_list: list[int],
+    num_lambdas: int,
+    m_mc: int,
+    seed: int,
+    sample_method: Literal["bitwise", "enumerate"],
+    verbose: bool,
+):
     """Evaluate Shor strict metrics under depolarized finite-Q ideal noise."""
     setup_logging(verbose=verbose)
     logger.debug(
-        f"args: {n=},{a=},{r=},{m=},{k_list=},{num_lambdas=},{m_mc=},{seed=}",
+        f"args: {instance.n=},{instance.a=},{instance.r=},{instance.m=},{k_list=},{num_lambdas=},{m_mc=},{seed=}",
     )
 
     selected_lambdas: list[float] = np.linspace(
         0, 1, num_lambdas, dtype=np.float64
     ).tolist()
-
-    instance: BenchmarkInstance = BenchmarkInstance(n=n, a=a, r=r, m=m)
 
     curves_by_lambda = run_depolarized_benchmark(
         instance=instance,
@@ -282,6 +272,92 @@ def main(
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(output_payload, indent=2), encoding="utf-8")
+    logger.info(f"Wrote output to {output}")
+
+
+@app.command("input")
+def manual_input(
+    n: Annotated[int, typer.Argument(help="Modulus N")],
+    a: Annotated[int, typer.Argument(help="Base a")],
+    r: Annotated[int, typer.Argument(help="Order r")],
+    m: Annotated[int, typer.Argument(help="Control register qubit count")],
+    output: Annotated[Path, typer.Argument(help="Output JSON path")],
+    k_list: Annotated[list[int], typer.Option(help="K values")] = [1, 2, 4, 8, 16],
+    num_lambdas: Annotated[
+        int,
+        typer.Option(help="Number of linspace(0, 1, num_lambdas) lambda values", min=2),
+    ] = 11,
+    m_mc: Annotated[int, typer.Option(help="Monte Carlo trials for each K")] = 5000,
+    seed: Annotated[int, typer.Option(help="Random seed")] = 7,
+    sample_method: Annotated[
+        Literal["bitwise", "enumerate"],
+        typer.Option(help="Finite-Q ideal sampling method"),
+    ] = "bitwise",
+    verbose: Annotated[
+        bool, typer.Option("-v", "--verbose", help="Enable debug logging")
+    ] = False,
+) -> None:
+    """Manually input instance parameters."""
+    main(
+        BenchmarkInstance(n=n, a=a, r=r, m=m),
+        output,
+        k_list,
+        num_lambdas,
+        m_mc,
+        seed,
+        sample_method,
+        verbose,
+    )
+
+
+class FileInstance(BaseModel):
+    generator: str
+    n: int
+    a: int
+    r: int
+    m: int
+
+
+@app.command("file")
+def from_file(
+    input: Annotated[Path, typer.Argument(help="Input instance JSON path")],
+    output: Annotated[Path, typer.Argument(help="Output result JSON path")],
+    k_list: Annotated[list[int], typer.Option(help="K values")] = [1, 2, 4, 8, 16],
+    num_lambdas: Annotated[
+        int,
+        typer.Option(help="Number of linspace(0, 1, num_lambdas) lambda values", min=2),
+    ] = 11,
+    m_mc: Annotated[int, typer.Option(help="Monte Carlo trials for each K")] = 5000,
+    seed: Annotated[int, typer.Option(help="Random seed")] = 7,
+    sample_method: Annotated[
+        Literal["bitwise", "enumerate"],
+        typer.Option(help="Finite-Q ideal sampling method"),
+    ] = "bitwise",
+    verbose: Annotated[
+        bool, typer.Option("-v", "--verbose", help="Enable debug logging")
+    ] = False,
+) -> None:
+    """Load instance parameters from a JSON file."""
+    json_str = input.read_text(encoding="utf-8")
+    file_instance = FileInstance.model_validate_json(json_str)
+
+    instance = BenchmarkInstance(
+        n=file_instance.n,
+        a=file_instance.a,
+        r=file_instance.r,
+        m=file_instance.m,
+    )
+
+    main(
+        instance,
+        output,
+        k_list,
+        num_lambdas,
+        m_mc,
+        seed,
+        sample_method,
+        verbose,
+    )
 
 
 if __name__ == "__main__":
