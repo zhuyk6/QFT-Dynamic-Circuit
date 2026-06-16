@@ -1,10 +1,8 @@
 """Plot Shor depolarized finite-Q robustness curves."""
 
-import json
-from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, cast
+from typing import Annotated, Literal
 
 import matplotlib.pyplot as plt
 import typer
@@ -12,48 +10,14 @@ from matplotlib.axes import Axes
 from matplotlib.colors import Colormap, LogNorm, Normalize
 from matplotlib.figure import Figure
 from matplotlib_config import PlotConfig, configure_matplotlib, get_latex_figsize
+from pydantic import BaseModel
 
 from qft_dynamic.shor_benchmark import BenchmarkInstance
+from qft_dynamic.shor_benchmark.types import StrictCurveResult
 
 app = typer.Typer()
 PLOT_DIR: Path = Path(__file__).resolve().parent
 PLOT_CONFIG: PlotConfig = configure_matplotlib(PLOT_DIR / "plot_config.toml")
-
-
-def _required_int(payload: Mapping[str, object], key: str) -> int:
-    """Parse a required integer field from a JSON object.
-
-    Args:
-        payload: JSON object containing the field.
-        key: Field name to parse.
-
-    Returns:
-        Integer field value.
-
-    Raises:
-        ValueError: If the field cannot be parsed as an integer.
-    """
-
-    return _parse_int(value=payload[key], field_name=key)
-
-
-def _parse_int(value: object, field_name: str) -> int:
-    """Parse an integer-compatible JSON value.
-
-    Args:
-        value: JSON value to parse.
-        field_name: Field name for error messages.
-
-    Returns:
-        Parsed integer.
-
-    Raises:
-        ValueError: If the value cannot be parsed as an integer.
-    """
-
-    if isinstance(value, bool) or not isinstance(value, int | float | str):
-        raise ValueError(f"Expected integer-compatible value for {field_name!r}.")
-    return int(value)
 
 
 @dataclass(frozen=True)
@@ -73,24 +37,17 @@ class RobustnessData:
     p_ord_strict_by_k: dict[int, list[float]]
 
 
-def _parse_instance(value: object) -> BenchmarkInstance:
-    """Parse benchmark instance metadata.
-
-    Args:
-        value: Parsed JSON instance object.
-
-    Returns:
-        Benchmark instance metadata.
-    """
-
-    payload: dict[str, object] = cast(dict[str, object], value)
-    instance = BenchmarkInstance(
-        n=_required_int(payload=payload, key="n"),
-        a=_required_int(payload=payload, key="a"),
-        r=_required_int(payload=payload, key="r"),
-        m=_required_int(payload=payload, key="m"),
-    )
-    return instance
+class DataPayload(BaseModel):
+    model: str = "depolarized_finite_q"
+    description: str = "P_lambda(y|s) = (1 - lambda) P_ideal(y|s) + lambda / Q"
+    instance: BenchmarkInstance
+    k_list: list[int]
+    lambdas: list[float]
+    m_mc: int
+    seed: int
+    sample_method: Literal["bitwise", "enumerate"]
+    max_workers: int
+    curves_by_lambda: list[tuple[float, StrictCurveResult]]
 
 
 def load_data(input_path: Path) -> RobustnessData:
@@ -106,41 +63,18 @@ def load_data(input_path: Path) -> RobustnessData:
         ValueError: If the JSON payload does not match the expected schema.
     """
 
-    payload: dict[str, object] = json.loads(input_path.read_text(encoding="utf-8"))
+    payload = DataPayload.model_validate_json(input_path.read_text(encoding="utf-8"))
 
-    instance: BenchmarkInstance = _parse_instance(value=payload["instance"])
-
-    raw_k_list: object = payload["k_list"]
-    assert isinstance(raw_k_list, list)
-    k_values: list[object] = cast(list[object], raw_k_list)
-    k_list: list[int] = [
-        _parse_int(value=value, field_name="k_list") for value in k_values
-    ]
-
-    raw_curves: object = payload["curves"]
-    assert isinstance(raw_curves, list)
-    curves: list[object] = cast(list[object], raw_curves)
-
-    lambdas: list[float] = []
+    instance: BenchmarkInstance = payload.instance
+    k_list = payload.k_list
+    lambdas = payload.lambdas
     p_ord_strict_by_k: dict[int, list[float]] = {k_value: [] for k_value in k_list}
 
-    for curve_value in curves:
-        curve_payload: dict[str, object] = cast(dict[str, object], curve_value)
-        noise_lambda: float = float(cast(float | int | str, curve_payload["lambda"]))
-        raw_metrics_by_k: object = curve_payload["metrics_by_k"]
-        assert isinstance(raw_metrics_by_k, dict)
-        metrics_by_k: dict[str, object] = cast(dict[str, object], raw_metrics_by_k)
-
-        lambdas.append(noise_lambda)
-
-        k_value: int
+    for lambda_val, curve in payload.curves_by_lambda:
+        metrics_by_k = curve.metrics_by_k
         for k_value in k_list:
-            metrics: dict[str, object] = cast(
-                dict[str, object], metrics_by_k[str(k_value)]
-            )
-            p_ord_strict: float = float(
-                cast(float | int | str, metrics["p_ord_strict"])
-            )
+            metrics = metrics_by_k[k_value]
+            p_ord_strict = metrics.p_ord_strict
             p_ord_strict_by_k[k_value].append(p_ord_strict)
 
     data: RobustnessData = RobustnessData(
@@ -177,6 +111,7 @@ def plot_robustness_curve(
     output_path: Path,
     cmap_name: str,
     height_ratio: float,
+    short_title: bool,
 ) -> None:
     """Plot P_ord_strict versus lambda with one curve per K.
 
@@ -185,6 +120,7 @@ def plot_robustness_curve(
         output_path: Path to save the figure.
         cmap_name: Matplotlib colormap name.
         height_ratio: Height ratio for the figure.
+        short_title: Whether to use a short title.
     """
 
     cmap: Colormap = plt.get_cmap(cmap_name)
@@ -220,9 +156,16 @@ def plot_robustness_curve(
     ax.legend()
 
     instance: BenchmarkInstance = data.instance
-    fig.suptitle(
-        (f"Instance (N={instance.n}, a={instance.a}, r={instance.r}, m={instance.m})"),
-    )
+    if not short_title:
+        fig.suptitle(
+            (
+                f"Instance (N={instance.n}, a={instance.a}, r={instance.r}, m={instance.m})"
+            ),
+        )
+    else:
+        n_bits = instance.n.bit_length()
+        r_bits = instance.r.bit_length()
+        fig.suptitle(f"N={n_bits} bits, r={r_bits} bits, m={instance.m}")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path)
@@ -235,6 +178,7 @@ def main(
     output: Annotated[Path, typer.Argument(help="Path to save the output plot")],
     cmap: Annotated[str, typer.Option(help="Matplotlib colormap name")] = "viridis",
     height_ratio: Annotated[float, typer.Option(help="Height ratio")] = 1.0,
+    short_title: Annotated[bool, typer.Option(help="Use short title")] = False,
 ) -> None:
     """Plot Shor depolarized robustness curves."""
 
@@ -244,6 +188,7 @@ def main(
         output_path=output,
         cmap_name=cmap,
         height_ratio=height_ratio,
+        short_title=short_title,
     )
 
 
