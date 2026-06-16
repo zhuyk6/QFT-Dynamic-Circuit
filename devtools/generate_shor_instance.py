@@ -15,8 +15,11 @@ Examples::
     python devtools/generate_shor_instance.py rsa --order-bits 128
 """
 
+from collections import Counter
 from pathlib import Path
+from typing import Annotated
 
+import sympy
 import typer
 from pydantic import BaseModel
 
@@ -69,6 +72,7 @@ class Payload(BaseModel):
     a: int
     r: int
     m: int
+    order_factors: list[int] = []
 
 
 @app.command("prime")
@@ -94,6 +98,7 @@ def generate_prime(
         a=instance.a,
         r=instance.r,
         m=instance.m,
+        order_factors=generator.order_factors,
     )
     savepath.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
     print(f"Saved to {savepath}")
@@ -101,27 +106,28 @@ def generate_prime(
 
 @app.command("composite")
 def generate_composite(
-    order_bits: int,
-    num_primes: int,
     savepath: Path,
+    prime_factors: Annotated[list[int], typer.Option(help="prime factor")] = [],
+    prime_factors_bits: Annotated[
+        list[int], typer.Option(help="prime factor bits")
+    ] = [],
     slack: int = 2,
     k_max: int = 1000,
     max_attempts: int = 20,
 ) -> None:
-    """Generate a composite-order instance (r = 2 * p1 * ... * pn)."""
-    factors = [2]
-    cnt = 0
-    while True:
-        p = random_prime(order_bits)
-        if p in factors:
-            continue
-        cnt += 1
+    """Generate a composite-order instance (r = p1 * p2 * ...)."""
+    factors: list[int] = []
+    assert prime_factors or prime_factors_bits, "Must specify at least one prime factor"
+    for p in prime_factors:
+        assert sympy.isprime(p), "Input prime factors must be prime"
         factors.append(p)
-        if cnt == num_primes:
-            break
+    for bits in prime_factors_bits:
+        factors.append(random_prime(bits))
+
+    counter: Counter[int] = Counter(factors)
 
     generator = CompositeOrderGenerator(
-        factorization=[(p, 1) for p in factors],
+        factorization=[(p, c) for p, c in counter.items()],
         slack=slack,
         k_max=k_max,
         max_attempts=max_attempts,
@@ -134,6 +140,7 @@ def generate_composite(
         a=instance.a,
         r=instance.r,
         m=instance.m,
+        order_factors=generator.order_factors,
     )
     savepath.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
     print(f"Saved to {savepath}")
@@ -162,6 +169,7 @@ def generate_rsa(
         a=instance.a,
         r=instance.r,
         m=instance.m,
+        order_factors=generator.order_factors,
     )
     savepath.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
     print(f"Saved to {savepath}")

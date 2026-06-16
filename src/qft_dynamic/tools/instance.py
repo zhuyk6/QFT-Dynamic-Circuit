@@ -149,6 +149,7 @@ class PrimeOrderGenerator:
         self.slack: int = slack
         self.k_max: int | None = k_max
         self.max_attempts: int = max_attempts
+        self.order_factors: list[int] = []
 
     def generate(self) -> BenchmarkInstance:
         """Generate a prime-order instance.
@@ -171,6 +172,7 @@ class PrimeOrderGenerator:
 
     def _generate_one(self) -> BenchmarkInstance:
         r: int = random_prime(self.order_bits)
+        self.order_factors = [r]
 
         p: int
         k: int
@@ -221,6 +223,7 @@ class CompositeOrderGenerator:
         self.slack: int = slack
         self.k_max: int | None = k_max
         self.max_attempts: int = max_attempts
+        self.order_factors: list[int] = []
 
     def generate(self) -> BenchmarkInstance:
         """Generate a composite-order instance.
@@ -248,6 +251,7 @@ class CompositeOrderGenerator:
         distinct_ells: list[int] = []
         for ell, exp in self.factorization:
             r *= ell**exp
+            self.order_factors.extend([ell] * exp)
             distinct_ells.append(ell)
 
         if r % 2 == 0:
@@ -315,6 +319,7 @@ class RsaStyleGenerator:
         self.slack: int = slack
         self.k_max: int | None = k_max
         self.max_attempts: int = max_attempts
+        self.order_factors: list[int] = []
 
     def generate(self) -> BenchmarkInstance:
         """Generate an RSA-style instance.
@@ -393,6 +398,7 @@ class RsaStyleGenerator:
         a: int = crt_pair(a_p, p, a_q, q)
         r: int = 2 * s * t
         m: int = 2 * N.bit_length() + self.slack
+        self.order_factors = [2, s, t]
 
         assert pow(a_p, s, p) == 1
         assert a_p != 1
