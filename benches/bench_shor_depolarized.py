@@ -9,12 +9,12 @@ chooses the finite-Q ideal sampler with probability ``1 - lambda`` and the
 uniform sampler with probability ``lambda``.
 """
 
-import json
 import logging
 import random
+from concurrent.futures import Future, ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Literal, TypeAlias
+from typing import Annotated, Literal
 
 import numpy as np
 import typer
@@ -26,7 +26,6 @@ from qft_dynamic.shor_benchmark.strict_postprocess import DefaultStrictPostproce
 from qft_dynamic.shor_benchmark.types import (
     BenchmarkInstance,
     StrictCurveResult,
-    StrictMetrics,
 )
 
 app = typer.Typer(
@@ -34,7 +33,9 @@ app = typer.Typer(
     help="Run depolarized finite-Q Shor strict robustness analysis.",
 )
 logger: logging.Logger = logging.getLogger(__name__)
-LambdaCurveResult: TypeAlias = tuple[float, StrictCurveResult]
+
+type LambdaCurveResult = tuple[float, StrictCurveResult]
+type IndexedLambdaCurveResult = tuple[int, LambdaCurveResult]
 
 
 @dataclass(frozen=True)
@@ -88,62 +89,28 @@ def setup_logging(verbose: bool = False) -> None:
     )
 
 
-def strict_metrics_to_dict(metrics: StrictMetrics) -> dict[str, float]:
-    """Serialize strict metrics into a JSON-compatible dictionary.
-
-    Args:
-        metrics: Strict metrics for one K value.
-
-    Returns:
-        Dictionary containing strict success, wrong-output, and null rates.
-    """
-
-    payload: dict[str, float] = {
-        "p_ord_strict": metrics.p_ord_strict,
-        "p_wrong": metrics.p_wrong,
-        "p_null": metrics.p_null,
-    }
-    return payload
-
-
-def strict_curve_to_dict(curve: StrictCurveResult) -> dict[str, dict[str, float]]:
-    """Serialize a strict curve into a JSON-compatible dictionary.
-
-    Args:
-        curve: Strict metrics indexed by K.
-
-    Returns:
-        Dictionary keyed by stringified K values.
-    """
-
-    payload: dict[str, dict[str, float]] = {}
-    k_value: int
-    metrics: StrictMetrics
-    for k_value, metrics in sorted(curve.metrics_by_k.items()):
-        payload[str(k_value)] = strict_metrics_to_dict(metrics=metrics)
-    return payload
-
-
-def run_depolarized_benchmark(
+def _evaluate_lambda_curve_worker(
     instance: BenchmarkInstance,
     k_list: list[int],
-    lambdas: list[float],
     m_mc: int,
-    seed: int,
     sample_method: Literal["bitwise", "enumerate"],
-) -> list[LambdaCurveResult]:
-    """Run strict metrics for a depolarized finite-Q lambda sweep.
+    lambda_index: int,
+    noise_lambda: float,
+    seed: int,
+) -> IndexedLambdaCurveResult:
+    """Evaluate one lambda value in a worker process.
 
     Args:
         instance: Benchmark instance.
         k_list: Sample-count values K.
-        lambdas: Mixture weights for the uniform component.
-        m_mc: Monte Carlo trial count for each K and lambda.
-        seed: Base random seed.
+        m_mc: Monte Carlo trial count for each K.
         sample_method: Finite-Q ideal sampling strategy.
+        lambda_index: Original position of this lambda value.
+        noise_lambda: Mixture weight for the uniform component.
+        seed: Random seed for this lambda value.
 
     Returns:
-        List of ``(lambda, strict curve)`` results, preserving lambda order.
+        Tuple containing the original lambda index and its curve result.
     """
 
     postprocessor: DefaultStrictPostprocessor = DefaultStrictPostprocessor(
@@ -154,83 +121,122 @@ def run_depolarized_benchmark(
         sample_method=sample_method,
     )
     uniform_sampler: UniformSampler = UniformSampler(instance=instance)
-
-    curves_by_lambda: list[LambdaCurveResult] = []
-    lambda_index: int
-    noise_lambda: float
-    for lambda_index, noise_lambda in enumerate(lambdas):
-        logger.info("Evaluating lambda=%.6g", noise_lambda)
-        sampler = DepolarizedFiniteQSampler(
-            ideal_sampler=ideal_sampler,
-            uniform_sampler=uniform_sampler,
-            noise_lambda=noise_lambda,
-        )
-        curve: StrictCurveResult = evaluate_strict_curve(
-            instance=instance,
-            sampler=sampler,
-            postprocessor=postprocessor,
-            k_list=k_list,
-            m_mc=m_mc,
-            seed=seed + lambda_index,
-        )
-        curves_by_lambda.append((noise_lambda, curve))
-
-    return curves_by_lambda
+    sampler: DepolarizedFiniteQSampler = DepolarizedFiniteQSampler(
+        ideal_sampler=ideal_sampler,
+        uniform_sampler=uniform_sampler,
+        noise_lambda=noise_lambda,
+    )
+    curve: StrictCurveResult = evaluate_strict_curve(
+        instance=instance,
+        sampler=sampler,
+        postprocessor=postprocessor,
+        k_list=k_list,
+        m_mc=m_mc,
+        seed=seed,
+    )
+    return lambda_index, (noise_lambda, curve)
 
 
-def build_output_payload(
+def run_depolarized_benchmark(
     instance: BenchmarkInstance,
     k_list: list[int],
+    lambdas: list[float],
     m_mc: int,
     seed: int,
     sample_method: Literal["bitwise", "enumerate"],
-    curves_by_lambda: list[LambdaCurveResult],
-) -> dict[str, object]:
-    """Build the JSON payload for the lambda sweep.
+    max_workers: int | None = None,
+) -> list[LambdaCurveResult]:
+    """Run strict metrics for a depolarized finite-Q lambda sweep.
 
     Args:
         instance: Benchmark instance.
         k_list: Sample-count values K.
+        lambdas: Mixture weights for the uniform component.
         m_mc: Monte Carlo trial count for each K and lambda.
         seed: Base random seed.
         sample_method: Finite-Q ideal sampling strategy.
-        curves_by_lambda: Strict curves paired with lambda values.
+        max_workers: Maximum number of worker processes. If ``None``, the
+            process pool chooses a default based on available CPUs.
 
     Returns:
-        JSON-compatible payload.
+        List of ``(lambda, strict curve)`` results, preserving lambda order.
     """
 
-    lambdas: list[float] = []
-    curves_payload: list[dict[str, object]] = []
-    noise_lambda: float
-    curve: StrictCurveResult
-    for noise_lambda, curve in curves_by_lambda:
-        lambdas.append(noise_lambda)
-        curves_payload.append(
-            {
-                "lambda": noise_lambda,
-                "metrics_by_k": strict_curve_to_dict(curve=curve),
-            }
-        )
+    if not lambdas:
+        return []
+    if max_workers is not None and max_workers <= 0:
+        raise ValueError("max_workers must be positive when provided")
 
-    payload: dict[str, object] = {
-        "model": "depolarized_finite_q",
-        "description": ("P_lambda(y|s) = (1 - lambda) P_ideal(y|s) + lambda / Q"),
-        "instance": {
-            "n": instance.n,
-            "a": instance.a,
-            "r": instance.r,
-            "m": instance.m,
-            "q": instance.q,
-        },
-        "k_list": k_list,
-        "lambdas": lambdas,
-        "m_mc": m_mc,
-        "seed": seed,
-        "sample_method": sample_method,
-        "curves": curves_payload,
-    }
-    return payload
+    curves_by_index: list[LambdaCurveResult | None] = [None for _ in lambdas]
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        futures: dict[Future[IndexedLambdaCurveResult], int] = {}
+        lambda_index: int
+        noise_lambda: float
+        for lambda_index, noise_lambda in enumerate(lambdas):
+            logger.info("Submitting lambda=%.6g", noise_lambda)
+            future: Future[IndexedLambdaCurveResult] = executor.submit(
+                _evaluate_lambda_curve_worker,
+                instance,
+                k_list,
+                m_mc,
+                sample_method,
+                lambda_index,
+                noise_lambda,
+                seed + lambda_index,
+            )
+            futures[future] = lambda_index
+
+        completed_future: Future[IndexedLambdaCurveResult]
+        for completed_future in as_completed(futures):
+            result_index: int
+            result: LambdaCurveResult
+            result_index, result = completed_future.result()
+            result_lambda: float = result[0]
+            logger.info("Finished lambda=%.6g", result_lambda)
+            curves_by_index[result_index] = result
+
+    curves_by_lambda: list[LambdaCurveResult] = []
+    curve_result: LambdaCurveResult | None
+    for curve_result in curves_by_index:
+        if curve_result is None:
+            raise RuntimeError("missing lambda curve result after process pool finish")
+        curves_by_lambda.append(curve_result)
+    return curves_by_lambda
+
+
+def _normalize_max_workers(max_workers: int) -> int | None:
+    """Convert a CLI worker count into a process-pool worker limit.
+
+    Args:
+        max_workers: CLI worker count. ``0`` means using the executor default.
+
+    Returns:
+        ``None`` for executor default, otherwise a positive worker count.
+
+    Raises:
+        ValueError: If ``max_workers`` is negative.
+    """
+
+    if max_workers < 0:
+        raise ValueError("max_workers must be non-negative")
+    if max_workers == 0:
+        return None
+    return max_workers
+
+
+class OutputPayload(BaseModel):
+    """Output payload."""
+
+    model: str = "depolarized_finite_q"
+    description: str = "P_lambda(y|s) = (1 - lambda) P_ideal(y|s) + lambda / Q"
+    instance: BenchmarkInstance
+    k_list: list[int]
+    lambdas: list[float]
+    m_mc: int
+    seed: int
+    sample_method: Literal["bitwise", "enumerate"]
+    max_workers: int
+    curves_by_lambda: list[LambdaCurveResult]
 
 
 def main(
@@ -241,17 +247,32 @@ def main(
     m_mc: int,
     seed: int,
     sample_method: Literal["bitwise", "enumerate"],
+    max_workers: int,
     verbose: bool,
-):
-    """Evaluate Shor strict metrics under depolarized finite-Q ideal noise."""
+) -> None:
+    """Evaluate Shor strict metrics under depolarized finite-Q ideal noise.
+
+    Args:
+        instance: Benchmark instance.
+        output: Output JSON path.
+        k_list: Sample-count values K.
+        num_lambdas: Number of linearly spaced lambda values.
+        m_mc: Monte Carlo trial count for each K and lambda.
+        seed: Base random seed.
+        sample_method: Finite-Q ideal sampling strategy.
+        max_workers: CLI worker-process setting. ``0`` means executor default.
+        verbose: Whether to enable debug logging.
+    """
+
     setup_logging(verbose=verbose)
     logger.debug(
-        f"args: {instance.n=},{instance.a=},{instance.r=},{instance.m=},{k_list=},{num_lambdas=},{m_mc=},{seed=}",
+        f"args: {instance.n=},{instance.a=},{instance.r=},{instance.m=},{k_list=},{num_lambdas=},{m_mc=},{seed=},{max_workers=}",
     )
 
     selected_lambdas: list[float] = np.linspace(
         0, 1, num_lambdas, dtype=np.float64
     ).tolist()
+    normalized_max_workers: int | None = _normalize_max_workers(max_workers=max_workers)
 
     curves_by_lambda = run_depolarized_benchmark(
         instance=instance,
@@ -260,23 +281,26 @@ def main(
         m_mc=m_mc,
         seed=seed,
         sample_method=sample_method,
+        max_workers=normalized_max_workers,
     )
 
-    output_payload: dict[str, object] = build_output_payload(
+    output_payload = OutputPayload(
         instance=instance,
         k_list=k_list,
+        lambdas=selected_lambdas,
         m_mc=m_mc,
         seed=seed,
         sample_method=sample_method,
+        max_workers=max_workers,
         curves_by_lambda=curves_by_lambda,
     )
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(output_payload, indent=2), encoding="utf-8")
+    output.write_text(output_payload.model_dump_json(indent=2), encoding="utf-8")
+
     logger.info(f"Wrote output to {output}")
 
 
 @app.command("input")
-def manual_input(
+def cli_manual_input(
     n: Annotated[int, typer.Argument(help="Modulus N")],
     a: Annotated[int, typer.Argument(help="Base a")],
     r: Annotated[int, typer.Argument(help="Order r")],
@@ -293,6 +317,13 @@ def manual_input(
         Literal["bitwise", "enumerate"],
         typer.Option(help="Finite-Q ideal sampling method"),
     ] = "bitwise",
+    max_workers: Annotated[
+        int,
+        typer.Option(
+            help="Maximum worker processes for lambda parallelism; 0 uses default",
+            min=0,
+        ),
+    ] = 0,
     verbose: Annotated[
         bool, typer.Option("-v", "--verbose", help="Enable debug logging")
     ] = False,
@@ -306,6 +337,7 @@ def manual_input(
         m_mc,
         seed,
         sample_method,
+        max_workers,
         verbose,
     )
 
@@ -316,10 +348,11 @@ class FileInstance(BaseModel):
     a: int
     r: int
     m: int
+    order_factors: list[int] = []
 
 
 @app.command("file")
-def from_file(
+def cli_from_file(
     input: Annotated[Path, typer.Argument(help="Input instance JSON path")],
     output: Annotated[Path, typer.Argument(help="Output result JSON path")],
     k_list: Annotated[list[int], typer.Option(help="K values")] = [1, 2, 4, 8, 16],
@@ -333,6 +366,13 @@ def from_file(
         Literal["bitwise", "enumerate"],
         typer.Option(help="Finite-Q ideal sampling method"),
     ] = "bitwise",
+    max_workers: Annotated[
+        int,
+        typer.Option(
+            help="Maximum worker processes for lambda parallelism; 0 uses default",
+            min=0,
+        ),
+    ] = 0,
     verbose: Annotated[
         bool, typer.Option("-v", "--verbose", help="Enable debug logging")
     ] = False,
@@ -356,6 +396,7 @@ def from_file(
         m_mc,
         seed,
         sample_method,
+        max_workers,
         verbose,
     )
 
