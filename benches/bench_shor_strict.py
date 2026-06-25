@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from pydantic import BaseModel, Field
 
 from qft_dynamic.shor_benchmark.samplers import (
     ArithmeticIdealEstimator,
@@ -120,42 +121,28 @@ def run_strict_benchmark(
     return combined
 
 
-@app.command()
 def main(
-    n: Annotated[int, typer.Argument(help="Modulus N")],
-    a: Annotated[int, typer.Argument(help="Base a")],
-    r: Annotated[int, typer.Argument(help="Order r")],
-    m: Annotated[int, typer.Argument(help="Control register qubit count")],
-    output: Annotated[Path, typer.Argument(help="Output JSON path")],
-    k_list: Annotated[
-        list[int],
-        typer.Option(help="K values"),
-    ] = [1, 2, 4, 8, 16],
-    m_mc: Annotated[int, typer.Option(help="Monte Carlo trials for each K")] = 5000,
-    seed: Annotated[int, typer.Option(help="Random seed")] = 7,
-    experiments_histograms: Annotated[
-        list[Path],
-        typer.Option(help="JSON files with per-s histograms"),
-    ] = [],
-    verbose: Annotated[
-        bool, typer.Option("-v", "--verbose", help="Enable debug logging")
-    ] = False,
+    instance: BenchmarkInstance,
+    output: Path,
+    k_list: list[int],
+    m_mc: int,
+    seed: int,
+    experiments_histograms: list[Path],
+    verbose: bool,
 ) -> None:
     """Shor strict benchmark: ideal, uniform, arithmetic ideal baselines and experiments results."""
     setup_logging(verbose)
 
     logger.debug(
         "args: n=%s a=%s r=%s m=%s k_list=%s m_mc=%s seed=%s",
-        n,
-        a,
-        r,
-        m,
+        instance.n,
+        instance.a,
+        instance.r,
+        instance.m,
         k_list,
         m_mc,
         seed,
     )
-
-    instance: BenchmarkInstance = BenchmarkInstance(n, a, r, m)
 
     result: CombinedCurveResult = run_strict_benchmark(
         instance=instance,
@@ -176,6 +163,92 @@ def main(
 
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(output_payload.model_dump_json(indent=2), encoding="utf-8")
+
+
+@app.command("input")
+def cli_manual_input(
+    n: Annotated[int, typer.Argument(help="Modulus N")],
+    a: Annotated[int, typer.Argument(help="Base a")],
+    r: Annotated[int, typer.Argument(help="Order r")],
+    m: Annotated[int, typer.Argument(help="Control register qubit count")],
+    output: Annotated[Path, typer.Argument(help="Output JSON path")],
+    k_list: Annotated[
+        list[int],
+        typer.Option(help="K values"),
+    ] = [1, 2, 4, 8, 16],
+    m_mc: Annotated[int, typer.Option(help="Monte Carlo trials for each K")] = 5000,
+    seed: Annotated[int, typer.Option(help="Random seed")] = 7,
+    experiments_histograms: Annotated[
+        list[Path],
+        typer.Option(help="JSON files with per-s histograms"),
+    ] = [],
+    verbose: Annotated[
+        bool, typer.Option("-v", "--verbose", help="Enable debug logging")
+    ] = False,
+) -> None:
+    """Manual input instance."""
+    main(
+        instance=BenchmarkInstance(n=n, a=a, r=r, m=m),
+        output=output,
+        k_list=k_list,
+        m_mc=m_mc,
+        seed=seed,
+        experiments_histograms=experiments_histograms,
+        verbose=verbose,
+    )
+
+
+class InstanceModel(BaseModel):
+    """Pydantic model for benchmark instance in JSON file."""
+
+    generator: str | None
+    n: int
+    a: int
+    r: int
+    m: int
+    order_factors: list[int] = Field(default_factory=list)
+
+
+@app.command("file")
+def cli_file_input(
+    input_file: Annotated[
+        Path, typer.Argument(help="Input JSON path for benchmark instances")
+    ],
+    output: Annotated[Path, typer.Argument(help="Output JSON path")],
+    k_list: Annotated[
+        list[int],
+        typer.Option(help="K values"),
+    ] = [1, 2, 4, 8, 16],
+    m_mc: Annotated[int, typer.Option(help="Monte Carlo trials for each K")] = 5000,
+    seed: Annotated[int, typer.Option(help="Random seed")] = 7,
+    experiments_histograms: Annotated[
+        list[Path],
+        typer.Option(help="JSON files with per-s histograms"),
+    ] = [],
+    verbose: Annotated[
+        bool, typer.Option("-v", "--verbose", help="Enable debug logging")
+    ] = False,
+) -> None:
+    """Input instance from JSON file."""
+    instance_model = InstanceModel.model_validate_json(
+        input_file.read_text(encoding="utf-8")
+    )
+    instance = BenchmarkInstance(
+        n=instance_model.n,
+        a=instance_model.a,
+        r=instance_model.r,
+        m=instance_model.m,
+    )
+
+    main(
+        instance=instance,
+        output=output,
+        k_list=k_list,
+        m_mc=m_mc,
+        seed=seed,
+        experiments_histograms=experiments_histograms,
+        verbose=verbose,
+    )
 
 
 if __name__ == "__main__":
