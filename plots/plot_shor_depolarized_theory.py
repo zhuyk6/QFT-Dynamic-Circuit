@@ -1,7 +1,7 @@
 """Plot approximate Shor depolarized strict-success theory curves."""
 
 from dataclasses import dataclass
-from math import comb, prod
+from math import prod
 from pathlib import Path
 from typing import Annotated, Sequence
 
@@ -13,6 +13,10 @@ from matplotlib.colors import Colormap, LogNorm, Normalize
 from matplotlib.figure import Figure
 from matplotlib_config import PlotConfig, configure_matplotlib, get_latex_figsize
 from pydantic import BaseModel, Field
+
+from qft_dynamic.shor_benchmark.theory import (
+    depolarized_approx_success_probability,
+)
 
 app = typer.Typer()
 PLOT_DIR: Path = Path(__file__).resolve().parent
@@ -42,7 +46,7 @@ class InstanceData:
 
 @dataclass(frozen=True)
 class TheoryCurveData:
-    """Approximate depolarized strict-success theory data.
+    """Approximate depolarized strict-success theory data for plotting.
 
     Args:
         instance: Instance metadata loaded from JSON.
@@ -138,92 +142,12 @@ def distinct_order_primes(instance: InstanceData) -> list[int]:
     return primes
 
 
-def arithmetic_success_probability(
-    k_value: int,
-    order_primes: Sequence[int],
-) -> float:
-    """Compute the arithmetic strict-success probability.
-
-    This implements
-    ``P_arith^(K) = prod_{p|r} (1 - p^{-K})``.
-
-    Args:
-        k_value: Number of independent samples.
-        order_primes: Distinct prime factors of the order ``r``.
-
-    Returns:
-        Arithmetic-limit strict order-recovery success probability.
-
-    Raises:
-        ValueError: If ``k_value`` is negative.
-    """
-
-    if k_value < 0:
-        raise ValueError(f"k_value must be non-negative, got {k_value}.")
-    if k_value == 0:
-        return 0.0
-
-    probability: float = 1.0
-    prime: int
-    for prime in order_primes:
-        probability *= 1.0 - float(prime ** (-k_value))
-    return probability
-
-
-def depolarized_approx_success_probability(
-    k_value: int,
-    lambda_value: float,
-    order_primes: Sequence[int],
-) -> float:
-    """Compute the approximate depolarized strict-success probability.
-
-    This implements the binomial-mixture form from
-    ``docs/order_finding_success_theory.md`` Section 5.1:
-
-    ``sum_j binom(K,j) (1-lambda)^j lambda^(K-j) P_arith^(j)``.
-
-    Args:
-        k_value: Number of independent samples.
-        lambda_value: Depolarized noise mixture weight in ``[0, 1]``.
-        order_primes: Distinct prime factors of the order ``r``.
-
-    Returns:
-        Approximate strict order-recovery success probability.
-
-    Raises:
-        ValueError: If ``k_value`` or ``lambda_value`` is outside its domain.
-    """
-
-    if k_value < 0:
-        raise ValueError(f"k_value must be non-negative, got {k_value}.")
-    if not 0.0 <= lambda_value <= 1.0:
-        raise ValueError(
-            f"lambda_value must be in the interval [0, 1], got {lambda_value}."
-        )
-    if k_value == 0:
-        return 0.0
-
-    probability: float = 0.0
-    ideal_count: int
-    for ideal_count in range(1, k_value + 1):
-        mixture_weight: float = (
-            float(comb(k_value, ideal_count))
-            * ((1.0 - lambda_value) ** ideal_count)
-            * (lambda_value ** (k_value - ideal_count))
-        )
-        probability += mixture_weight * arithmetic_success_probability(
-            k_value=ideal_count,
-            order_primes=order_primes,
-        )
-    return probability
-
-
 def build_theory_curve_data(
     instance: InstanceData,
     k_list: Sequence[int],
     lambdas: Sequence[float],
 ) -> TheoryCurveData:
-    """Compute approximate depolarized theory curves for one instance.
+    """Compute approximate depolarized theory curves for one plot.
 
     Args:
         instance: Instance metadata with a known factorization of ``r``.
