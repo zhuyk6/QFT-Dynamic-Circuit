@@ -7,15 +7,13 @@ import typer
 from matplotlib.axes import Axes
 from matplotlib.patches import Circle, Polygon, Rectangle
 
-app = typer.Typer()
+from matplotlib_config import get_latex_figsize, configure_matplotlib
 
-plt.rcParams.update(
-    {
-        "text.usetex": True,
-        "figure.constrained_layout.use": True,
-        "savefig.bbox": "standard",
-    }
-)
+PLOT_DIR = Path(__file__).resolve().parent
+PLOT_CONFIG = configure_matplotlib(PLOT_DIR / "plot_config.toml")
+
+
+app = typer.Typer()
 
 
 def draw_wire(ax: Axes, y: float, x0: float, x1: float):
@@ -118,7 +116,15 @@ def draw_legend(ax: Axes, x: float, y: float):
 def main(
     output: Annotated[Path, typer.Argument(help="Output plot file path")],
 ):
-    fig, ax = plt.subplots(figsize=(16, 3))
+    figsize = get_latex_figsize(
+        PLOT_CONFIG,
+        width="column",
+        height_ratio=0.25,
+    )
+    scale = 3
+    figsize = (figsize[0] * scale, figsize[1] * scale)
+    fig, ax = plt.subplots(figsize=figsize)
+
     ax.axis("off")
     ax.set_aspect("equal")
 
@@ -126,7 +132,7 @@ def main(
     y_step = 1.0
     x_step = 0.7
 
-    n = 6
+    n = 5
     x0, x1 = -1, (6 * n - 1) * x_step
     ys = [y_step * i for i in range(n)]
 
@@ -277,7 +283,7 @@ def main(
         draw_label(ax, x_pos, ys[n - 1 - i], f"${i}$")
 
     # legend
-    draw_legend(ax, x1 + 1.5, ys[n - 1] - 0.5)
+    # draw_legend(ax, x1 + 1.5, ys[n - 1] - 0.5)
 
     fig.savefig(output)
     print(f"Saved to {output}")

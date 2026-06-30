@@ -1,6 +1,6 @@
 [latex]
-column_width_pt = 234.8775
-text_width_pt = 487.8225
+column_width_pt = 246
+text_width_pt = 510
 caption_font_size_pt = 9
 body_font_size_pt = 10
 
@@ -16,8 +16,8 @@ use_latex = "auto"
 family = "serif"
 serif = ["Noto Serif"]
 latex_preamble = """
-\\usepackage{times}
-\\usepackage{mathptmx}
+\\usepackage{lmodern}
+\\usepackage[T1]{fontenc}
 """
 
 [style]
