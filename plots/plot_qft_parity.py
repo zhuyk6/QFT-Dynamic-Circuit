@@ -6,8 +6,7 @@ import matplotlib.pyplot as plt
 import typer
 from matplotlib.axes import Axes
 from matplotlib.patches import Circle, Polygon, Rectangle
-
-from matplotlib_config import get_latex_figsize, configure_matplotlib
+from matplotlib_config import configure_matplotlib, get_latex_figsize
 
 PLOT_DIR = Path(__file__).resolve().parent
 PLOT_CONFIG = configure_matplotlib(PLOT_DIR / "plot_config.toml")

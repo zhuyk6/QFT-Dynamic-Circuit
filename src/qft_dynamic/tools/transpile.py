@@ -5,8 +5,8 @@ from qiskit.converters import circuit_to_dag
 from qiskit.dagcircuit import DAGCircuit
 from qiskit.providers.fake_provider import GenericBackendV2
 from qiskit.transpiler import PassManager, generate_preset_pass_manager
-from qiskit.transpiler.passes import TimeUnitConversion
 from qiskit.transpiler.basepasses import TransformationPass
+from qiskit.transpiler.passes import TimeUnitConversion
 from qiskit_ibm_runtime.transpiler.passes.scheduling import (
     ASAPScheduleAnalysis,
     PadDelay,
