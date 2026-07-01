@@ -7,12 +7,14 @@ from typing import Literal
 
 from cycler import cycler
 from matplotlib import pyplot as plt
+from matplotlib.typing import RcKeyType
 from pydantic import BaseModel, ConfigDict, Field
 
 PT_PER_INCH: float = 72.27
 
-WidthName = Literal["column", "text"]
-LatexMode = Literal["auto"] | bool
+type WidthName = Literal["column", "text"]
+type LatexMode = Literal["auto"] | bool
+type RcParamValue = bool | int | float | str | list[str]
 
 
 class FrozenConfigModel(BaseModel):
@@ -109,13 +111,13 @@ def configure_matplotlib(
     latex_enabled: bool = _resolve_latex_mode(latex_mode)
     palette_name: str = config.style.palette if palette is None else palette
 
-    base_params: dict[str, object] = {
-        "font.size": config.latex.caption_font_size_pt,
+    base_params: dict[RcKeyType, RcParamValue] = {
+        "font.size": config.latex.body_font_size_pt,
         "axes.labelsize": config.latex.caption_font_size_pt,
         "axes.titlesize": config.latex.caption_font_size_pt,
         "xtick.labelsize": max(config.latex.caption_font_size_pt - 1, 1),
         "ytick.labelsize": max(config.latex.caption_font_size_pt - 1, 1),
-        "legend.fontsize": max(config.latex.caption_font_size_pt - 1, 1),
+        "legend.fontsize": max(config.latex.caption_font_size_pt - 2, 1),
         "lines.linewidth": config.style.line_width,
         "lines.markersize": config.style.marker_size,
         "lines.markeredgewidth": config.style.marker_edge_width,

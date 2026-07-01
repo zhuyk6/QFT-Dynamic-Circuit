@@ -3,16 +3,18 @@
 import shutil
 import tomllib
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from cycler import cycler
 from matplotlib import pyplot as plt
+from matplotlib.typing import RcKeyType
 from pydantic import BaseModel, ConfigDict, Field
 
-PT_PER_INCH = 72.27
+PT_PER_INCH: float = 72.27
 
-WidthName = Literal["column", "text"]
-LatexMode = Literal["auto"] | bool
+type WidthName = Literal["column", "text"]
+type LatexMode = Literal["auto"] | bool
+type RcParamValue = bool | int | float | str | list[str]
 
 
 class FrozenConfigModel(BaseModel):
@@ -72,11 +74,12 @@ class PlotConfig(FrozenConfigModel):
 def load_plot_config(path: str | Path = "plot_config.toml") -> PlotConfig:
     """Load project plotting configuration from a TOML file."""
 
-    config_path = Path(path)
+    config_path: Path = Path(path)
     with config_path.open("rb") as file:
-        raw = tomllib.load(file)
+        raw: dict[str, object] = tomllib.load(file)
 
-    return PlotConfig.model_validate(raw)
+    config: PlotConfig = PlotConfig.model_validate(raw)
+    return config
 
 
 def configure_matplotlib(
@@ -87,13 +90,12 @@ def configure_matplotlib(
 ) -> PlotConfig:
     """Load project config and apply publication-oriented rcParams."""
 
-    config = load_plot_config(config_path)
-    latex_enabled = _resolve_latex_mode(
-        config.font.use_latex if use_latex is None else use_latex
-    )
-    palette_name = config.style.palette if palette is None else palette
+    config: PlotConfig = load_plot_config(config_path)
+    latex_mode: LatexMode = config.font.use_latex if use_latex is None else use_latex
+    latex_enabled: bool = _resolve_latex_mode(latex_mode)
+    palette_name: str = config.style.palette if palette is None else palette
 
-    base_params: dict[str, Any] = {
+    base_params: dict[RcKeyType, RcParamValue] = {
         "font.size": config.latex.caption_font_size_pt,
         "axes.labelsize": config.latex.caption_font_size_pt,
         "axes.titlesize": config.latex.caption_font_size_pt,
