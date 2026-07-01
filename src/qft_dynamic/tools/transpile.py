@@ -5,6 +5,7 @@ from qiskit.converters import circuit_to_dag
 from qiskit.dagcircuit import DAGCircuit
 from qiskit.providers.fake_provider import GenericBackendV2
 from qiskit.transpiler import PassManager, generate_preset_pass_manager
+from qiskit.transpiler.passes import TimeUnitConversion
 from qiskit.transpiler.basepasses import TransformationPass
 from qiskit_ibm_runtime.transpiler.passes.scheduling import (
     ASAPScheduleAnalysis,
@@ -87,11 +88,11 @@ def generate_pass_manager(backend: GenericBackendV2) -> PassManager:
         initial_layout=list(range(num_qubits)),
         routing_method="none",
     )
-    durations = backend.target.durations()
     pm.scheduling = PassManager(  # ty: ignore[unresolved-attribute]
         [
-            ASAPScheduleAnalysis(durations),
-            PadDelay(durations),
+            TimeUnitConversion(target=backend.target),
+            ASAPScheduleAnalysis(target=backend.target),
+            PadDelay(target=backend.target),
         ]
     )
 

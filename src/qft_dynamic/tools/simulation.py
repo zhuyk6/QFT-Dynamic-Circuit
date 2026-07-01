@@ -253,7 +253,6 @@ def compose_with_layout(
         front=True,
         inplace=False,
     )
-    assert total_circuit is not None
     return total_circuit
 
 

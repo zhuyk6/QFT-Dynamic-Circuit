@@ -33,8 +33,7 @@ def test_phase_state_matches_swapless_qft_convention_for_aligned_case() -> None:
             s=s_value,
         )
         qft_circuit = qft_unitary(instance.m, measure=False)
-        full_circuit = preparation_circuit.compose(qft_circuit)
-        assert full_circuit is not None
+        full_circuit = preparation_circuit.compose(qft_circuit, inplace=False)
         probabilities = Statevector.from_instruction(full_circuit).probabilities_dict()
 
         expected_bitstring: str = format(s_value, f"0{instance.m}b")
@@ -48,7 +47,7 @@ def test_simulate_histograms_for_small_instance() -> None:
 
     histograms: dict[int, Counter[int]] = simulate_histograms_for_instance(
         instance=instance,
-        batch_size=2,
+        batch_size=1,
         num_shots=32,
         gate_error=False,
         readout_error=False,
