@@ -1,4 +1,4 @@
-"""Plot a Gantt chart for batched dynamic-QFT execution."""
+"""Plot a Gantt chart comparing batched dynamic-QFT execution for two batch sizes."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,7 +14,6 @@ from matplotlib_config import PlotConfig, configure_matplotlib, get_latex_figsiz
 app: typer.Typer = typer.Typer()
 PLOT_DIR: Path = Path(__file__).resolve().parent
 PLOT_CONFIG: PlotConfig = configure_matplotlib(PLOT_DIR / "plot_config.toml")
-BAR_LABEL_FONT_SIZE: float = max(PLOT_CONFIG.latex.caption_font_size_pt - 3.0, 1.0)
 LEGEND_FONT_SIZE: float = max(PLOT_CONFIG.latex.caption_font_size_pt - 2.0, 1.0)
 
 
@@ -116,8 +115,8 @@ def _build_stages(
 
     stages: tuple[Stage, ...] = (
         Stage("QFT", "QFT", qft_duration, "C0"),
-        Stage("Measure", "M", measure_duration, "C1"),
-        Stage("Feed forward", "FF", feed_forward_duration, "C2"),
+        Stage("Measurement", "M", measure_duration, "C1"),
+        Stage("Feedforward", "FF", feed_forward_duration, "C2"),
     )
     return stages
 
@@ -232,16 +231,6 @@ def _draw_bar(
     )
     ax.add_patch(rectangle)
 
-    # if label is not None and width >= 0.8:
-    #     ax.text(
-    #         start + width / 2.0,
-    #         qubit_index,
-    #         label,
-    #         ha="center",
-    #         va="center",
-    #         fontsize=BAR_LABEL_FONT_SIZE,
-    #     )
-
 
 def _draw_waiting_regions(
     ax: Axes,
@@ -327,14 +316,15 @@ def _draw_batch_guides(
 def _configure_axes(
     ax: Axes,
     num_qubits: int,
-    total_duration: float,
+    *,
+    show_xlabel: bool = True,
 ) -> None:
-    """Configure labels, limits, ticks, and legend for the Gantt axes.
+    """Configure labels, limits, and ticks for one Gantt subplot.
 
     Args:
         ax: Matplotlib axes to configure.
         num_qubits: Total number of qubits in the example schedule.
-        total_duration: End time of the full schedule.
+        show_xlabel: Whether to show the x-axis label (``"Time"``).
 
     Returns:
         None.
@@ -346,10 +336,10 @@ def _configure_axes(
     ax.set_yticks(y_ticks)
     ax.set_yticklabels(y_labels)
     ax.set_ylim(num_qubits - 0.35, -0.65)
-    ax.set_xlim(0.0, total_duration)
     ax.set_xticks([])
     ax.tick_params(axis="x", length=0)
-    ax.set_xlabel("Time")
+    if show_xlabel:
+        ax.set_xlabel("Time")
     ax.set_ylabel("Qubit")
 
     hidden_spines: tuple[str, str] = ("top", "right")
@@ -357,26 +347,29 @@ def _configure_axes(
         ax.spines[spine_name].set_visible(False)
 
 
-def plot_batched_dynamic_qft_gantt(
-    output_filename: Path,
-    num_qubits: int = 9,
-    batch_size: int = 3,
-    qft_duration: float = 4.0,
-    measure_duration: float = 1.0,
-    feed_forward_duration: float = 1.0,
-) -> None:
-    """Plot a Gantt chart for serial batched dynamic-QFT execution.
+def _draw_gantt_on_axes(
+    ax: Axes,
+    num_qubits: int,
+    batch_size: int,
+    qft_duration: float,
+    measure_duration: float,
+    feed_forward_duration: float,
+    *,
+    show_xlabel: bool = True,
+) -> float:
+    """Draw a complete Gantt chart for one batch configuration on given axes.
 
     Args:
-        output_filename: Output figure path.
+        ax: Matplotlib axes to draw on.
         num_qubits: Total number of qubits in the example schedule.
         batch_size: Number of qubits executed in each batch.
         qft_duration: QFT stage duration.
         measure_duration: Measurement stage duration.
         feed_forward_duration: Feed-forward stage duration.
+        show_xlabel: Whether to show the x-axis label on this subplot.
 
     Returns:
-        None.
+        Total duration of the schedule for this batch configuration.
     """
 
     _validate_inputs(
@@ -406,16 +399,6 @@ def plot_batched_dynamic_qft_gantt(
     )
     total_duration: float = batch_stops[-1]
 
-    figsize: tuple[float, float] = get_latex_figsize(
-        PLOT_CONFIG,
-        width="column",
-        fraction=0.95,
-        # height_ratio=0.48,
-    )
-    fig: Figure
-    ax: Axes
-    fig, ax = plt.subplots(figsize=figsize)
-
     _draw_waiting_regions(
         ax=ax,
         num_qubits=num_qubits,
@@ -431,22 +414,111 @@ def plot_batched_dynamic_qft_gantt(
     _configure_axes(
         ax=ax,
         num_qubits=num_qubits,
-        total_duration=total_duration,
+        show_xlabel=show_xlabel,
     )
 
+    return total_duration
+
+
+def plot_batched_dynamic_qft_gantt_comparison(
+    output_filename: Path,
+    batch_sizes: list[int],
+    qft_durations: list[float],
+    num_qubits: int = 6,
+    measure_duration: float = 1.0,
+    feed_forward_duration: float = 1.0,
+) -> None:
+    """Plot a Gantt chart comparing batched dynamic-QFT across multiple batch sizes.
+
+    Args:
+        output_filename: Output figure path.
+        batch_sizes: Batch sizes to compare (e.g. ``[1, 2, 3]``).
+        qft_durations: QFT stage duration for each batch size (same length as
+            ``batch_sizes``).
+        num_qubits: Total number of qubits (must be divisible by every batch size).
+        measure_duration: Measurement stage duration (shared).
+        feed_forward_duration: Feed-forward stage duration (shared).
+
+    Returns:
+        None.
+    """
+
+    if len(batch_sizes) != len(qft_durations):
+        raise ValueError(
+            "batch_sizes and qft_durations must have the same length, "
+            f"got {len(batch_sizes)} vs {len(qft_durations)}."
+        )
+    if len(batch_sizes) < 1:
+        raise ValueError("At least one batch size is required.")
+
+    for batch_size in batch_sizes:
+        if num_qubits % batch_size != 0:
+            raise ValueError(
+                f"num_qubits ({num_qubits}) must be divisible by "
+                f"batch_size ({batch_size})."
+            )
+
+    num_panels: int = len(batch_sizes)
+    panel_labels: list[str] = [f"$b = {batch_size}$" for batch_size in batch_sizes]
+
+    figsize: tuple[float, float] = get_latex_figsize(
+        PLOT_CONFIG,
+        width="column",
+        fraction=0.95,
+        height_ratio=0.48 * num_panels,
+    )
+    fig: Figure
+    axes_flat: list[Axes]
+    fig, axes_array = plt.subplots(
+        num_panels, 1, figsize=figsize, sharex=True, squeeze=False
+    )
+    axes_flat = list(axes_array.flatten())
+
+    max_duration: float = 0.0
+
+    for idx, (batch_size, qft_duration) in enumerate(zip(batch_sizes, qft_durations)):
+        ax: Axes = axes_flat[idx]
+        total_duration: float = _draw_gantt_on_axes(
+            ax=ax,
+            num_qubits=num_qubits,
+            batch_size=batch_size,
+            qft_duration=qft_duration,
+            measure_duration=measure_duration,
+            feed_forward_duration=feed_forward_duration,
+            show_xlabel=(idx == num_panels - 1),
+        )
+        max_duration = max(max_duration, total_duration)
+        ax.text(
+            0.5,
+            0.96,
+            panel_labels[idx],
+            transform=ax.transAxes,
+            va="top",
+            ha="center",
+            fontsize=PLOT_CONFIG.latex.caption_font_size_pt,
+        )
+
+    axes_flat[-1].set_xlim(0.0, max_duration)
+
+    # Shared legend (stage structure is identical; use first config as reference).
+    stages_ref: tuple[Stage, ...] = _build_stages(
+        qft_duration=qft_durations[0],
+        measure_duration=measure_duration,
+        feed_forward_duration=feed_forward_duration,
+    )
     legend_handles: list[Patch] = [
-        Patch(facecolor=stage.color, label=stage.name) for stage in stages
+        Patch(facecolor=stage.color, label=stage.name) for stage in stages_ref
     ]
     legend_handles.append(Patch(facecolor="#E6E6E6", hatch="//", label="Waiting"))
-    ax.legend(
+    axes_flat[-1].legend(
         handles=legend_handles,
-        loc="upper right",
-        ncols=2,
+        loc="lower right",
+        ncols=1,
         fontsize=LEGEND_FONT_SIZE,
-        handlelength=1.0,
-        handletextpad=0.4,
-        borderpad=0.3,
-        columnspacing=0.8,
+        # handlelength=1.0,
+        # handletextpad=0.4,
+        # borderpad=0.3,
+        # columnspacing=0.8,
     )
 
     output_filename.parent.mkdir(parents=True, exist_ok=True)
@@ -456,37 +528,41 @@ def plot_batched_dynamic_qft_gantt(
 @app.command()
 def main(
     output: Annotated[Path, typer.Argument(help="Output plot file path")],
+    batch_sizes: Annotated[
+        list[int],
+        typer.Option(
+            help="Batch sizes to compare (e.g. --batch-sizes 1 2 3)",
+            min=1,
+        ),
+    ] = [1, 2],
+    qft_durations: Annotated[
+        list[float],
+        typer.Option(
+            help="QFT stage duration for each batch size "
+            "(same length as --batch-sizes)",
+        ),
+    ] = [30, 110],
     num_qubits: Annotated[
         int,
         typer.Option(
             help="Total number of qubits in the schedule",
-            min=1,
+            min=2,
         ),
-    ] = 9,
-    batch_size: Annotated[
-        int,
-        typer.Option(
-            help="Number of qubits in each dynamic-QFT batch",
-            min=1,
-        ),
-    ] = 3,
-    qft_duration: Annotated[
-        float, typer.Option(help="Duration of each QFT stage")
-    ] = 4.0,
+    ] = 6,
     measure_duration: Annotated[
         float, typer.Option(help="Duration of each measurement stage")
-    ] = 1.0,
+    ] = 500,
     feed_forward_duration: Annotated[
         float, typer.Option(help="Duration of each feed-forward stage")
-    ] = 1.0,
+    ] = 200,
 ) -> None:
-    """Create the batched dynamic-QFT Gantt chart."""
+    """Create a Gantt chart comparing batched dynamic-QFT across batch sizes."""
 
-    plot_batched_dynamic_qft_gantt(
+    plot_batched_dynamic_qft_gantt_comparison(
         output_filename=output,
+        batch_sizes=batch_sizes,
+        qft_durations=qft_durations,
         num_qubits=num_qubits,
-        batch_size=batch_size,
-        qft_duration=qft_duration,
         measure_duration=measure_duration,
         feed_forward_duration=feed_forward_duration,
     )

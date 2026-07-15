@@ -73,13 +73,13 @@ def draw_decoherence_plot(
     ax.plot(
         xs,
         qft,
-        label=r"QFT exposure $O(b)$",
+        label=r"Block-execution $O(b)$",
         linestyle="--",
     )
     ax.plot(
         xs,
         wait,
-        label=r"M + FF Waiting $O(1/b)$",
+        label=r"Interblock Waiting $O(1/b)$",
         linestyle="-.",
     )
     ax.plot(
@@ -134,7 +134,7 @@ def draw_decoherence_plot(
     # ========================================================
 
     ax.set_xlabel(r"Batch size $b$")
-    ax.set_ylabel("Decoherence exposure")
+    ax.set_ylabel("Live-qubit exposure")
     ax.legend(
         loc="upper left",
         bbox_to_anchor=(0.1, 1.0),
