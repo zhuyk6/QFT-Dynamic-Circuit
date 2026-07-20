@@ -6,10 +6,10 @@ import matplotlib.pyplot as plt
 import typer
 from matplotlib.axes import Axes
 from matplotlib.patches import Circle, Polygon, Rectangle
-from matplotlib_config import configure_matplotlib, get_latex_figsize
+from matplotlib_config import PlotConfig, get_latex_figsize, plot_context
 
 PLOT_DIR = Path(__file__).resolve().parent
-PLOT_CONFIG = configure_matplotlib(PLOT_DIR / "plot_config.toml")
+PLOT_CONFIG_PATH: Path = PLOT_DIR / "plot_config.toml"
 
 
 app = typer.Typer()
@@ -111,13 +111,15 @@ def draw_legend(ax: Axes, x: float, y: float):
     ax.text(x + 0.6, y - 1, r"$= R_Z(\theta)$", ha="left", va="center", fontsize=15)
 
 
-@app.command()
-def main(
+def _plot_qft_parity(
     output: Annotated[Path, typer.Argument(help="Output plot file path")],
-):
+    config: PlotConfig,
+) -> None:
+    """Draw and save the QFT parity circuit figure."""
     figsize = get_latex_figsize(
-        PLOT_CONFIG,
+        config,
         width="column",
+        fraction=0.95,
         height_ratio=0.25,
     )
     scale = 3
@@ -285,7 +287,17 @@ def main(
     # draw_legend(ax, x1 + 1.5, ys[n - 1] - 0.5)
 
     fig.savefig(output)
+    plt.close(fig)
     print(f"Saved to {output}")
+
+
+@app.command()
+def main(
+    output: Annotated[Path, typer.Argument(help="Output plot file path")],
+) -> None:
+    """Plot QFT parity using scoped Matplotlib configuration."""
+    with plot_context(PLOT_CONFIG_PATH, palette="nature") as config:
+        _plot_qft_parity(output=output, config=config)
 
 
 if __name__ == "__main__":

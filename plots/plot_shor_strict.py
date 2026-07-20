@@ -7,7 +7,11 @@ import matplotlib.pyplot as plt
 import typer
 from matplotlib.axes import Axes
 from matplotlib.ticker import ScalarFormatter
-from matplotlib_config import PlotConfig, configure_matplotlib, get_latex_figsize
+from matplotlib_config import (
+    PlotConfig,
+    get_latex_figsize,
+    plot_context,
+)
 
 from qft_dynamic.shor_benchmark import (
     ArithmeticCurveResult,
@@ -18,7 +22,7 @@ from qft_dynamic.shor_benchmark import (
 
 app = typer.Typer()
 PLOT_DIR: Path = Path(__file__).resolve().parent
-PLOT_CONFIG: PlotConfig = configure_matplotlib(PLOT_DIR / "plot_config.toml")
+PLOT_CONFIG_PATH: Path = PLOT_DIR / "plot_config.toml"
 
 
 def load_data(
@@ -54,12 +58,13 @@ def load_data(
     return k_list, strict_curves, arithmetic_curve, instance
 
 
-def plot_benchmark(
+def _plot_benchmark(
     k_list: list[int],
     strict_curves: dict[str, StrictCurveResult],
     arithmetic_curve: ArithmeticCurveResult,
     instance: BenchmarkInstance,
     output_path: Path,
+    config: PlotConfig,
     experiments_labels: list[str] | None = None,
 ) -> None:
     """Plot benchmark results and save to output_path.
@@ -88,7 +93,7 @@ def plot_benchmark(
     }
 
     figsize: tuple[float, float] = get_latex_figsize(
-        PLOT_CONFIG,
+        config,
         width="text",
         fraction=0.95,
         height_ratio=0.42,
@@ -198,6 +203,27 @@ def plot_benchmark(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path)
     plt.close(fig)
+
+
+def plot_benchmark(
+    k_list: list[int],
+    strict_curves: dict[str, StrictCurveResult],
+    arithmetic_curve: ArithmeticCurveResult,
+    instance: BenchmarkInstance,
+    output_path: Path,
+    experiments_labels: list[str] | None = None,
+) -> None:
+    """Plot benchmark results using scoped Matplotlib configuration."""
+    with plot_context(PLOT_CONFIG_PATH, palette="nature") as config:
+        _plot_benchmark(
+            k_list=k_list,
+            strict_curves=strict_curves,
+            arithmetic_curve=arithmetic_curve,
+            instance=instance,
+            output_path=output_path,
+            config=config,
+            experiments_labels=experiments_labels,
+        )
 
 
 @app.command()

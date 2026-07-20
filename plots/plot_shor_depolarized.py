@@ -10,7 +10,11 @@ import typer
 from matplotlib.axes import Axes
 from matplotlib.colors import Colormap, LogNorm, Normalize
 from matplotlib.figure import Figure
-from matplotlib_config import PlotConfig, configure_matplotlib, get_latex_figsize
+from matplotlib_config import (
+    PlotConfig,
+    get_latex_figsize,
+    plot_context,
+)
 from plot_shor_depolarized_theory import (
     InstanceData,
     TheoryCurveData,
@@ -26,7 +30,7 @@ from qft_dynamic.shor_benchmark.types import StrictCurveResult, StrictMetrics
 
 app = typer.Typer()
 PLOT_DIR: Path = Path(__file__).resolve().parent
-PLOT_CONFIG: PlotConfig = configure_matplotlib(PLOT_DIR / "plot_config.toml")
+PLOT_CONFIG_PATH: Path = PLOT_DIR / "plot_config.toml"
 
 
 @dataclass(frozen=True)
@@ -166,12 +170,13 @@ def _apply_common_axes_style(ax: Axes, title: str | None) -> None:
     ax.grid(True, alpha=0.3)
 
 
-def plot_robustness_curve(
+def _plot_robustness_curve(
     data: RobustnessData,
     output_path: Path,
     cmap_name: str,
     height_ratio: float,
     short_title: bool,
+    config: PlotConfig,
 ) -> None:
     """Plot P_ord_strict versus lambda with one curve per K.
 
@@ -189,7 +194,7 @@ def plot_robustness_curve(
     fig: Figure
     ax: Axes
     figsize: tuple[float, float] = get_latex_figsize(
-        PLOT_CONFIG,
+        config,
         width="column",
         fraction=0.95,
         height_ratio=height_ratio,
@@ -225,6 +230,25 @@ def plot_robustness_curve(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path)
     plt.close(fig)
+
+
+def plot_robustness_curve(
+    data: RobustnessData,
+    output_path: Path,
+    cmap_name: str,
+    height_ratio: float,
+    short_title: bool,
+) -> None:
+    """Plot robustness curves using scoped Matplotlib configuration."""
+    with plot_context(PLOT_CONFIG_PATH, palette="nature") as config:
+        _plot_robustness_curve(
+            data=data,
+            output_path=output_path,
+            cmap_name=cmap_name,
+            height_ratio=height_ratio,
+            short_title=short_title,
+            config=config,
+        )
 
 
 def plot_sample_points_with_theory(
@@ -438,7 +462,7 @@ def _save_figure(fig: Figure, output_path: Path) -> None:
     plt.close(fig)
 
 
-def plot_robustness_curve_with_theory(
+def _plot_robustness_curve_with_theory(
     data: RobustnessData,
     theory_instance_path: Path,
     output_path: Path,
@@ -446,6 +470,7 @@ def plot_robustness_curve_with_theory(
     height_ratio: float,
     short_title: bool,
     theory_lambda_points: int,
+    config: PlotConfig,
 ) -> None:
     """Plot sampled depolarized data against approximate theory curves.
 
@@ -475,7 +500,7 @@ def plot_robustness_curve_with_theory(
     fig: Figure
     axes: np.ndarray[tuple[int], np.dtype[np.object_]]
     figsize: tuple[float, float] = get_latex_figsize(
-        PLOT_CONFIG,
+        config,
         width="column",
         fraction=0.95,
         height_ratio=height_ratio,
@@ -513,6 +538,29 @@ def plot_robustness_curve_with_theory(
         short_title=short_title,
     )
     _save_figure(fig=fig, output_path=output_path)
+
+
+def plot_robustness_curve_with_theory(
+    data: RobustnessData,
+    theory_instance_path: Path,
+    output_path: Path,
+    cmap_name: str,
+    height_ratio: float,
+    short_title: bool,
+    theory_lambda_points: int,
+) -> None:
+    """Plot sampled and theory curves using scoped Matplotlib configuration."""
+    with plot_context(PLOT_CONFIG_PATH, palette="nature") as config:
+        _plot_robustness_curve_with_theory(
+            data=data,
+            theory_instance_path=theory_instance_path,
+            output_path=output_path,
+            cmap_name=cmap_name,
+            height_ratio=height_ratio,
+            short_title=short_title,
+            theory_lambda_points=theory_lambda_points,
+            config=config,
+        )
 
 
 @app.command()

@@ -11,7 +11,11 @@ import typer
 from matplotlib.axes import Axes
 from matplotlib.colors import Colormap, LogNorm, Normalize
 from matplotlib.figure import Figure
-from matplotlib_config import PlotConfig, configure_matplotlib, get_latex_figsize
+from matplotlib_config import (
+    PlotConfig,
+    get_latex_figsize,
+    plot_context,
+)
 from numpy.typing import NDArray
 from pydantic import BaseModel, Field
 
@@ -28,7 +32,7 @@ app = typer.Typer(
 )
 
 PLOT_DIR: Path = Path(__file__).resolve().parent
-PLOT_CONFIG: PlotConfig = configure_matplotlib(PLOT_DIR / "plot_config.toml")
+PLOT_CONFIG_PATH: Path = PLOT_DIR / "plot_config.toml"
 
 type CurveFunction = Callable[[float], float]
 
@@ -536,12 +540,13 @@ def _color_norm(k_list: Sequence[int]) -> Normalize | LogNorm:
     )
 
 
-def plot_benchmark_on_depolarized(
+def _plot_benchmark_on_depolarized(
     data: BenchmarkOnCurveData,
     output_path: Path,
     cmap_name: str,
     height_ratio: float,
     short_title: bool,
+    config: PlotConfig,
 ) -> None:
     """Plot depolarized curves and benchmark star points.
 
@@ -559,7 +564,7 @@ def plot_benchmark_on_depolarized(
     fig: Figure
     ax: Axes
     figsize: tuple[float, float] = get_latex_figsize(
-        PLOT_CONFIG,
+        config,
         width="column",
         fraction=0.95,
         height_ratio=height_ratio,
@@ -639,6 +644,25 @@ def plot_benchmark_on_depolarized(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path)
     plt.close(fig)
+
+
+def plot_benchmark_on_depolarized(
+    data: BenchmarkOnCurveData,
+    output_path: Path,
+    cmap_name: str,
+    height_ratio: float,
+    short_title: bool,
+) -> None:
+    """Plot benchmark points using scoped Matplotlib configuration."""
+    with plot_context(PLOT_CONFIG_PATH, palette="nature") as config:
+        _plot_benchmark_on_depolarized(
+            data=data,
+            output_path=output_path,
+            cmap_name=cmap_name,
+            height_ratio=height_ratio,
+            short_title=short_title,
+            config=config,
+        )
 
 
 @app.command("theory")

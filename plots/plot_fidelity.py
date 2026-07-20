@@ -11,11 +11,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import typer
-from matplotlib_config import PlotConfig, configure_matplotlib, get_latex_figsize
+from matplotlib_config import get_latex_figsize, plot_context
 
 app = typer.Typer()
 PLOT_DIR: Path = Path(__file__).resolve().parent
-PLOT_CONFIG: PlotConfig = configure_matplotlib(PLOT_DIR / "plot_config.toml")
+PLOT_CONFIG_PATH: Path = PLOT_DIR / "plot_config.toml"
 
 
 def _load_benchmark_results(
@@ -131,42 +131,51 @@ def plot_result(
     results = _load_benchmark_results(results_dir) if results_dir is not None else None
     baseline = _load_baseline(baseline_csv) if baseline_csv is not None else None
 
-    figsize: tuple[float, float] = get_latex_figsize(
-        PLOT_CONFIG,
-        width="text",
-        fraction=0.95,
-        height_ratio=0.62,
-    )
-    fig, ax = plt.subplots(figsize=figsize)
+    with plot_context(PLOT_CONFIG_PATH, palette="nature") as config:
+        figsize: tuple[float, float] = get_latex_figsize(
+            config,
+            width="text",
+            fraction=0.95,
+            height_ratio=0.62,
+        )
+        fig, ax = plt.subplots(figsize=figsize)
 
-    if baseline is not None:
-        for method, data in baseline.items():
-            x_list = [x for x, _ in data]
-            y_list = [y for _, y in data]
-            color: str = "C0" if method.startswith("unitary") else "C1"
-            linestyle: str = "dashed" if method.endswith("no DD") else "-"
-            ax.plot(x_list, y_list, label=method, marker="o", color=color, ls=linestyle)
+        if baseline is not None:
+            for method, data in baseline.items():
+                x_list = [x for x, _ in data]
+                y_list = [y for _, y in data]
+                color: str = "C0" if method.startswith("unitary") else "C1"
+                linestyle: str = "dashed" if method.endswith("no DD") else "-"
+                ax.plot(
+                    x_list,
+                    y_list,
+                    label=method,
+                    marker="o",
+                    color=color,
+                    ls=linestyle,
+                )
 
-    if results is not None:
-        for batch_size in sorted(results.keys()):
-            x = results[batch_size]["n"]
-            y = results[batch_size]["mean"]
-            yerr = results[batch_size]["std"]
-            ax.errorbar(
-                x,
-                y,
-                yerr=yerr,
-                marker="x",
-                label=f"batch size = {batch_size}",
-                color=f"C{batch_size + 1}",
-            )
+        if results is not None:
+            for batch_size in sorted(results.keys()):
+                x = results[batch_size]["n"]
+                y = results[batch_size]["mean"]
+                yerr = results[batch_size]["std"]
+                ax.errorbar(
+                    x,
+                    y,
+                    yerr=yerr,
+                    marker="x",
+                    label=f"batch size = {batch_size}",
+                    color=f"C{batch_size + 1}",
+                )
 
-    ax.set_xlim(2, 12 if baseline is None else 40)
-    ax.set_ylim(0, 1)
-    ax.legend()
+        ax.set_xlim(2, 12 if baseline is None else 40)
+        ax.set_ylim(0, 1)
+        ax.legend()
 
-    output_filename.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_filename)
+        output_filename.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output_filename)
+        plt.close(fig)
 
 
 @app.command()

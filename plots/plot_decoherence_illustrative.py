@@ -13,11 +13,15 @@ import numpy as np
 import typer
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
-from matplotlib_config import PlotConfig, configure_matplotlib, get_latex_figsize
+from matplotlib_config import (
+    PlotConfig,
+    get_latex_figsize,
+    plot_context,
+)
 from numpy.typing import NDArray
 
 PLOT_DIR: Path = Path(__file__).resolve().parent
-PLOT_CONFIG: PlotConfig = configure_matplotlib(PLOT_DIR / "plot_config.toml")
+PLOT_CONFIG_PATH: Path = PLOT_DIR / "plot_config.toml"
 
 app = typer.Typer()
 
@@ -138,7 +142,7 @@ def draw_decoherence_plot(
     ax.legend(
         loc="upper left",
         bbox_to_anchor=(0.1, 1.0),
-        fontsize=PLOT_CONFIG.latex.caption_font_size_pt - 3,
+        fontsize=6,
     )
     ax.set_ylim(bottom=0)
 
@@ -155,7 +159,7 @@ def draw_decoherence_plot(
     )
 
 
-def plot_decoherence(
+def _plot_decoherence(
     output: Path,
     max_x: int,
     steps: int,
@@ -164,6 +168,7 @@ def plot_decoherence(
     a2: float,
     b2: float,
     b3: float,
+    config: PlotConfig,
 ) -> None:
     """Plot decoherence exposure versus batch size and save the figure."""
 
@@ -179,9 +184,10 @@ def plot_decoherence(
     total += meas  # add measurement exposure to total
 
     figsize: tuple[float, float] = get_latex_figsize(
-        PLOT_CONFIG,
+        config,
         width="column",
         fraction=0.95,
+        height_ratio=0.618,
     )
     fig: Figure
     ax: Axes
@@ -198,7 +204,33 @@ def plot_decoherence(
 
     output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output)
+    plt.close(fig)
     print(f"Saved plot to {output}")
+
+
+def plot_decoherence(
+    output: Path,
+    max_x: int,
+    steps: int,
+    a1: float,
+    b1: float,
+    a2: float,
+    b2: float,
+    b3: float,
+) -> None:
+    """Plot illustrative exposure using scoped Matplotlib configuration."""
+    with plot_context(PLOT_CONFIG_PATH, palette="nature") as config:
+        _plot_decoherence(
+            output=output,
+            max_x=max_x,
+            steps=steps,
+            a1=a1,
+            b1=b1,
+            a2=a2,
+            b2=b2,
+            b3=b3,
+            config=config,
+        )
 
 
 @app.command()

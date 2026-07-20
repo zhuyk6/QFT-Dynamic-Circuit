@@ -9,12 +9,17 @@ import typer
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.patches import Patch, Rectangle
-from matplotlib_config import PlotConfig, configure_matplotlib, get_latex_figsize
+from matplotlib_config import (
+    PlotConfig,
+    get_latex_figsize,
+    plot_context,
+)
 
 app: typer.Typer = typer.Typer()
 PLOT_DIR: Path = Path(__file__).resolve().parent
-PLOT_CONFIG: PlotConfig = configure_matplotlib(PLOT_DIR / "plot_config.toml")
-LEGEND_FONT_SIZE: float = max(PLOT_CONFIG.latex.caption_font_size_pt - 2.0, 1.0)
+PLOT_CONFIG_PATH: Path = PLOT_DIR / "plot_config.toml"
+CAPTION_FONT_SIZE: float = 9.0
+LEGEND_FONT_SIZE: float = 7.0
 
 
 @dataclass(frozen=True)
@@ -420,10 +425,11 @@ def _draw_gantt_on_axes(
     return total_duration
 
 
-def plot_batched_dynamic_qft_gantt_comparison(
+def _plot_batched_dynamic_qft_gantt_comparison(
     output_filename: Path,
     batch_sizes: list[int],
     qft_durations: list[float],
+    config: PlotConfig,
     num_qubits: int = 6,
     measure_duration: float = 1.0,
     feed_forward_duration: float = 1.0,
@@ -462,7 +468,7 @@ def plot_batched_dynamic_qft_gantt_comparison(
     panel_labels: list[str] = [f"$b = {batch_size}$" for batch_size in batch_sizes]
 
     figsize: tuple[float, float] = get_latex_figsize(
-        PLOT_CONFIG,
+        config,
         width="column",
         fraction=0.95,
         height_ratio=0.48 * num_panels,
@@ -495,7 +501,7 @@ def plot_batched_dynamic_qft_gantt_comparison(
             transform=ax.transAxes,
             va="top",
             ha="center",
-            fontsize=PLOT_CONFIG.latex.caption_font_size_pt,
+            fontsize=CAPTION_FONT_SIZE,
         )
 
     axes_flat[-1].set_xlim(0.0, max_duration)
@@ -523,6 +529,28 @@ def plot_batched_dynamic_qft_gantt_comparison(
 
     output_filename.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_filename)
+    plt.close(fig)
+
+
+def plot_batched_dynamic_qft_gantt_comparison(
+    output_filename: Path,
+    batch_sizes: list[int],
+    qft_durations: list[float],
+    num_qubits: int = 6,
+    measure_duration: float = 1.0,
+    feed_forward_duration: float = 1.0,
+) -> None:
+    """Plot a Gantt comparison using scoped Matplotlib configuration."""
+    with plot_context(PLOT_CONFIG_PATH, palette="nature") as config:
+        _plot_batched_dynamic_qft_gantt_comparison(
+            output_filename=output_filename,
+            batch_sizes=batch_sizes,
+            qft_durations=qft_durations,
+            config=config,
+            num_qubits=num_qubits,
+            measure_duration=measure_duration,
+            feed_forward_duration=feed_forward_duration,
+        )
 
 
 @app.command()

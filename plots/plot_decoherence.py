@@ -8,11 +8,15 @@ import numpy as np
 import typer
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
-from matplotlib_config import PlotConfig, configure_matplotlib, get_latex_figsize
+from matplotlib_config import (
+    PlotConfig,
+    get_latex_figsize,
+    plot_context,
+)
 from numpy.typing import NDArray
 
 PLOT_DIR: Path = Path(__file__).resolve().parent
-PLOT_CONFIG: PlotConfig = configure_matplotlib(PLOT_DIR / "plot_config.toml")
+PLOT_CONFIG_PATH: Path = PLOT_DIR / "plot_config.toml"
 
 app = typer.Typer()
 
@@ -264,18 +268,19 @@ def draw_decoherence_plot(
     ax.legend(
         loc="upper right",
         bbox_to_anchor=(1.0, 0.45),
-        fontsize=PLOT_CONFIG.latex.caption_font_size_pt - 3,
+        fontsize=6,
     )
     ax.set_ylim(bottom=0)
     ax.set_xlim(left=0)
 
 
-def plot_decoherence(
+def _plot_decoherence(
     output: Path,
     num_qubits: int,
     t_measure: float,
     t_feedforward: float,
     t_cnot: float,
+    config: PlotConfig,
 ) -> None:
     """Plot decoherence exposure versus batch size and save the figure.
 
@@ -300,9 +305,10 @@ def plot_decoherence(
     )
 
     figsize: tuple[float, float] = get_latex_figsize(
-        PLOT_CONFIG,
+        config,
         width="column",
         fraction=0.95,
+        height_ratio=0.618,
     )
     fig: Figure
     ax: Axes
@@ -318,7 +324,27 @@ def plot_decoherence(
 
     output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output)
+    plt.close(fig)
     print(f"Saved plot to {output}")
+
+
+def plot_decoherence(
+    output: Path,
+    num_qubits: int,
+    t_measure: float,
+    t_feedforward: float,
+    t_cnot: float,
+) -> None:
+    """Plot decoherence exposure using scoped Matplotlib configuration."""
+    with plot_context(PLOT_CONFIG_PATH, palette="nature") as config:
+        _plot_decoherence(
+            output=output,
+            num_qubits=num_qubits,
+            t_measure=t_measure,
+            t_feedforward=t_feedforward,
+            t_cnot=t_cnot,
+            config=config,
+        )
 
 
 @app.command()

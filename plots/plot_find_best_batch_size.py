@@ -7,11 +7,11 @@ from typing import Annotated
 import matplotlib.pyplot as plt
 import typer
 from matplotlib.axes import Axes
-from matplotlib_config import PlotConfig, configure_matplotlib, get_latex_figsize
+from matplotlib_config import get_latex_figsize, plot_context
 
 app = typer.Typer()
 PLOT_DIR: Path = Path(__file__).resolve().parent
-PLOT_CONFIG: PlotConfig = configure_matplotlib(PLOT_DIR / "plot_config.toml")
+PLOT_CONFIG_PATH: Path = PLOT_DIR / "plot_config.toml"
 
 
 def plot_tvd_vs_batch_size_for_different_samplers(
@@ -22,27 +22,31 @@ def plot_tvd_vs_batch_size_for_different_samplers(
     with open(filename, "rb") as input_file:
         dict_sampler_batch_tvd: dict[str, dict[int, float]] = pickle.load(input_file)
 
-    figsize: tuple[float, float] = get_latex_figsize(
-        PLOT_CONFIG,
-        width="text",
-        fraction=0.95,
-        height_ratio=1.25,
-    )
-    fig, axes = plt.subplots(4, 2, figsize=figsize)
+    with plot_context(PLOT_CONFIG_PATH, palette="nature") as config:
+        figsize: tuple[float, float] = get_latex_figsize(
+            config,
+            width="text",
+            fraction=0.95,
+            height_ratio=1.25,
+        )
+        fig, axes = plt.subplots(4, 2, figsize=figsize)
 
-    for index, (sampler_key, batch_tvd) in enumerate(dict_sampler_batch_tvd.items()):
-        ax: Axes = axes[index // 2, index % 2]
-        batch_sizes = sorted(batch_tvd.keys())
-        tvd_values = [batch_tvd[bs] for bs in batch_sizes]
-        ax.plot(batch_sizes, tvd_values, marker="o")
-        ax.set_ylim(0.0, 0.5)
-        ax.set_xlabel("Batch Size")
-        ax.set_ylabel("TVD")
-        ax.set_title(f"Sampler: {sampler_key}")
-        ax.set_xticks(batch_sizes)
+        for index, (sampler_key, batch_tvd) in enumerate(
+            dict_sampler_batch_tvd.items()
+        ):
+            ax: Axes = axes[index // 2, index % 2]
+            batch_sizes = sorted(batch_tvd.keys())
+            tvd_values = [batch_tvd[bs] for bs in batch_sizes]
+            ax.plot(batch_sizes, tvd_values, marker="o")
+            ax.set_ylim(0.0, 0.5)
+            ax.set_xlabel("Batch Size")
+            ax.set_ylabel("TVD")
+            ax.set_title(f"Sampler: {sampler_key}")
+            ax.set_xticks(batch_sizes)
 
-    savefile.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(savefile)
+        savefile.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(savefile)
+        plt.close(fig)
 
 
 def plot_tvd_vs_num_qubits_for_different_batch_sizes(
@@ -53,34 +57,36 @@ def plot_tvd_vs_num_qubits_for_different_batch_sizes(
     with open(filename, "rb") as input_file:
         dict_batch_num_tvd: dict[int, dict[int, float]] = pickle.load(input_file)
 
-    figsize: tuple[float, float] = get_latex_figsize(
-        PLOT_CONFIG,
-        width="column",
-        fraction=0.95,
-        height_ratio=0.75,
-    )
-    fig, ax = plt.subplots(figsize=figsize)
-    markers = ["o", "s", "^", "D", "v", "P", "*"]
-    linestyles = ["-", "--", "-.", ":"]
-
-    for index, batch_size in enumerate(dict_batch_num_tvd.keys()):
-        dict_num_tvd = dict_batch_num_tvd[batch_size]
-        num_qubits = sorted(dict_num_tvd.keys())
-        tvd_values = [dict_num_tvd[nq] for nq in num_qubits]
-        ax.plot(
-            num_qubits,
-            tvd_values,
-            marker=markers[index],
-            linestyle=linestyles[index],
-            label=f"Batch Size {batch_size}",
+    with plot_context(PLOT_CONFIG_PATH, palette="nature") as config:
+        figsize: tuple[float, float] = get_latex_figsize(
+            config,
+            width="column",
+            fraction=0.95,
+            height_ratio=0.75,
         )
+        fig, ax = plt.subplots(figsize=figsize)
+        markers = ["o", "s", "^", "D", "v", "P", "*"]
+        linestyles = ["-", "--", "-.", ":"]
 
-    ax.legend()
-    ax.set_xlabel("Number of Qubits")
-    ax.set_ylabel("TVD")
+        for index, batch_size in enumerate(dict_batch_num_tvd.keys()):
+            dict_num_tvd = dict_batch_num_tvd[batch_size]
+            num_qubits = sorted(dict_num_tvd.keys())
+            tvd_values = [dict_num_tvd[nq] for nq in num_qubits]
+            ax.plot(
+                num_qubits,
+                tvd_values,
+                marker=markers[index],
+                linestyle=linestyles[index],
+                label=f"Batch Size {batch_size}",
+            )
 
-    savefile.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(savefile)
+        ax.legend()
+        ax.set_xlabel("Number of Qubits")
+        ax.set_ylabel("TVD")
+
+        savefile.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(savefile)
+        plt.close(fig)
 
 
 @app.command()

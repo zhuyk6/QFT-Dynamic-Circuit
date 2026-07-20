@@ -7,11 +7,11 @@ from typing import Annotated
 import matplotlib.pyplot as plt
 import numpy as np
 import typer
-from matplotlib_config import PlotConfig, configure_matplotlib, get_latex_figsize
+from matplotlib_config import get_latex_figsize, plot_context
 
 app = typer.Typer()
 PLOT_DIR: Path = Path(__file__).resolve().parent
-PLOT_CONFIG: PlotConfig = configure_matplotlib(PLOT_DIR / "plot_config.toml")
+PLOT_CONFIG_PATH: Path = PLOT_DIR / "plot_config.toml"
 
 
 def plot_result(
@@ -28,28 +28,30 @@ def plot_result(
     x = np.arange(len(batch_sizes))
     width = 0.2
 
-    figsize: tuple[float, float] = get_latex_figsize(
-        PLOT_CONFIG,
-        width="column",
-        fraction=0.95,
-        height_ratio=0.75,
-    )
-    fig, ax = plt.subplots(figsize=figsize)
-    for index, method in enumerate(methods):
-        method_values = [
-            dict_tvd_batch_method[batch_size][method] for batch_size in batch_sizes
-        ]
-        ax.bar(x + index * width, method_values, width, label=method)
+    with plot_context(PLOT_CONFIG_PATH, palette="nature") as config:
+        figsize: tuple[float, float] = get_latex_figsize(
+            config,
+            width="column",
+            fraction=0.95,
+            height_ratio=0.75,
+        )
+        fig, ax = plt.subplots(figsize=figsize)
+        for index, method in enumerate(methods):
+            method_values = [
+                dict_tvd_batch_method[batch_size][method] for batch_size in batch_sizes
+            ]
+            ax.bar(x + index * width, method_values, width, label=method)
 
-    ax.set_xlabel("Batch Size")
-    ax.set_ylabel("TVD")
-    ax.set_title("TVD for Different Batch Sizes and Encode Methods")
-    ax.set_xticks(x + width)
-    ax.set_xticklabels(map(str, batch_sizes))
-    ax.legend()
+        ax.set_xlabel("Batch Size")
+        ax.set_ylabel("TVD")
+        ax.set_title("TVD for Different Batch Sizes and Encode Methods")
+        ax.set_xticks(x + width)
+        ax.set_xticklabels(map(str, batch_sizes))
+        ax.legend()
 
-    savefig_filename.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(savefig_filename)
+        savefig_filename.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(savefig_filename)
+        plt.close(fig)
 
 
 @app.command()

@@ -11,7 +11,11 @@ import typer
 from matplotlib.axes import Axes
 from matplotlib.colors import Colormap, LogNorm, Normalize
 from matplotlib.figure import Figure
-from matplotlib_config import PlotConfig, configure_matplotlib, get_latex_figsize
+from matplotlib_config import (
+    PlotConfig,
+    get_latex_figsize,
+    plot_context,
+)
 from pydantic import BaseModel, Field
 
 from qft_dynamic.shor_benchmark.theory import (
@@ -20,7 +24,7 @@ from qft_dynamic.shor_benchmark.theory import (
 
 app = typer.Typer()
 PLOT_DIR: Path = Path(__file__).resolve().parent
-PLOT_CONFIG: PlotConfig = configure_matplotlib(PLOT_DIR / "plot_config.toml")
+PLOT_CONFIG_PATH: Path = PLOT_DIR / "plot_config.toml"
 
 
 @dataclass(frozen=True)
@@ -282,12 +286,13 @@ def plot_instance_theory_curve(
     return data
 
 
-def save_theory_plot(
+def _save_theory_plot(
     data: TheoryCurveData,
     output_path: Path,
     cmap_name: str,
     height_ratio: float,
     short_title: bool,
+    config: PlotConfig,
 ) -> None:
     """Save a standalone approximate theory plot.
 
@@ -302,7 +307,7 @@ def save_theory_plot(
     fig: Figure
     ax: Axes
     figsize: tuple[float, float] = get_latex_figsize(
-        PLOT_CONFIG,
+        config,
         width="column",
         fraction=0.95,
         height_ratio=height_ratio,
@@ -327,6 +332,25 @@ def save_theory_plot(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path)
     plt.close(fig)
+
+
+def save_theory_plot(
+    data: TheoryCurveData,
+    output_path: Path,
+    cmap_name: str,
+    height_ratio: float,
+    short_title: bool,
+) -> None:
+    """Save a theory plot using scoped Matplotlib configuration."""
+    with plot_context(PLOT_CONFIG_PATH, palette="nature") as config:
+        _save_theory_plot(
+            data=data,
+            output_path=output_path,
+            cmap_name=cmap_name,
+            height_ratio=height_ratio,
+            short_title=short_title,
+            config=config,
+        )
 
 
 def parse_k_list(k_values: str) -> list[int]:
