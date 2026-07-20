@@ -1,0 +1,22 @@
+# Static publication defaults. Per-figure size and color cycle are intentionally
+# absent: callers provide those choices when generating each figure.
+
+font.family: serif
+font.serif: Noto Serif, DejaVu Serif
+font.size: 9
+axes.labelsize: 9
+axes.titlesize: 9
+xtick.labelsize: 8
+ytick.labelsize: 8
+legend.fontsize: 8
+
+lines.linewidth: 1.5
+lines.markersize: 4
+lines.markeredgewidth: 1
+errorbar.capsize: 3
+
+figure.constrained_layout.use: True
+savefig.bbox: standard
+savefig.dpi: 300
+savefig.format: pdf
+text.usetex: False

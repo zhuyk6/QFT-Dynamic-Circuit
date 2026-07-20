@@ -1,31 +1,6 @@
 [latex]
 column_width_pt = 234.8775
 text_width_pt = 487.8225
-caption_font_size_pt = 9
-body_font_size_pt = 10
-
-[figure]
-default_width = "column"
-default_fraction = 0.95
-default_height_ratio = 0.618
-default_dpi = 300
-default_format = "pdf"
-
-[font]
-use_latex = "auto"
-family = "serif"
-serif = ["Noto Serif"]
-latex_preamble = """
-\\usepackage{times}
-\\usepackage{mathptmx}
-"""
-
-[style]
-palette = "nature"
-line_width = 1.5
-marker_size = 4
-marker_edge_width = 1.0
-errorbar_capsize = 3
 
 [palettes]
 nature = [
