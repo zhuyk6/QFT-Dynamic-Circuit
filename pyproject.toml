@@ -47,3 +47,6 @@ filterwarnings = [
     "ignore:The property ``qiskit\\.dagcircuit\\.dagcircuit\\.DAGCircuit\\.unit`` is deprecated.*:DeprecationWarning:qiskit_ibm_runtime\\.transpiler\\.passes\\.scheduling\\.block_base_padder",
     "ignore:The property ``qiskit\\.dagcircuit\\.dagcircuit\\.DAGCircuit\\.duration`` is deprecated.*:DeprecationWarning:qiskit_ibm_runtime\\.transpiler\\.passes\\.scheduling\\.block_base_padder",
 ]
+
+[tool.ty.src]
+exclude = [".agents"]
