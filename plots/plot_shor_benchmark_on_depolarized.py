@@ -595,6 +595,7 @@ def _plot_benchmark_on_depolarized(
     ax.scatter(
         arr_lambdas,
         arr_prob,
+        zorder=3,
         marker="*",
         color="black",
         label=f"{data.curve_name}",
