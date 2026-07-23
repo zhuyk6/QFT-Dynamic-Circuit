@@ -9,6 +9,7 @@ from typing import Any, Literal, cast
 import matplotlib as mpl
 from cycler import cycler
 from matplotlib import style as mpl_style
+from matplotlib.typing import ColorType
 from pydantic import BaseModel, ConfigDict, Field
 
 PT_PER_INCH = 72.27
@@ -109,16 +110,18 @@ def get_latex_figsize(
     return _get_figsize(_resolve_width_pt(config, width), fraction, height_ratio)
 
 
-def _resolve_palette(config: PlotConfig, palette: str) -> tuple[str, ...]:
+def _resolve_palette(config: PlotConfig, palette: str) -> tuple[ColorType, ...]:
     """Return a named palette, with a useful error for invalid choices."""
 
-    try:
+    if palette in config.palettes:  # user-defined palettes
         return config.palettes[palette]
-    except KeyError as exc:
+    elif palette in mpl.color_sequences:  # Matplotlib built-in palettes
+        return tuple(mpl.color_sequences[palette])
+    else:
         choices = ", ".join(sorted(config.palettes))
         raise ValueError(
-            f"Unknown palette {palette!r}. Expected one of: {choices}."
-        ) from exc
+            f"Unknown palette {palette!r}. Expected one of: {choices} or a valid Matplotlib color sequence."
+        )
 
 
 def _resolve_width_pt(config: PlotConfig, width: WidthName) -> float:
