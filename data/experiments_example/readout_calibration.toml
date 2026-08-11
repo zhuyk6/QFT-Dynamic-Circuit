@@ -1,0 +1,9 @@
+schema_version = 1
+
+[qubits.10]
+p0_given_0 = 0.96
+p1_given_1 = 0.94
+
+[qubits.11]
+p0_given_0 = 0.97
+p1_given_1 = 0.95

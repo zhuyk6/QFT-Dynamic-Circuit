@@ -1,0 +1,4 @@
+*
+!.gitignore
+!experiments_example/
+!experiments_example/**

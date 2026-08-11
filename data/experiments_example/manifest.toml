@@ -1,0 +1,30 @@
+schema_version = 1
+# Identifiers are copied to every normalized output; the loader does not
+# interpret experiment_type beyond preserving it for downstream consumers.
+dataset_id = "logical-counts-2q-demo"
+experiment_type = "process_fidelity"
+# num_qubits is the logical output width. Only MSB-first integer encoding is
+# currently supported.
+num_qubits = 2
+bit_order = "msb_first"
+# Relative paths are resolved from this manifest's directory.
+raw_data_dir = "raw"
+# Named regex groups become string metadata for each matching filename stem.
+filename_metadata_regex = '_k(?P<k>\d+)'
+
+[[groups]]
+name = "swapped-readout-demo"
+# file_glob is evaluated inside raw_data_dir.
+file_glob = "*QFT_fidelity_demo_k*.npz"
+# First construct physical columns [Q10, Q11]. Each entry below is a physical
+# column position, so [1, 0] produces logical columns [Q11, Q10].
+physical_qubits = [10, 11]
+logical_from_physical = [1, 0]
+
+[groups.attributes]
+# Attributes are copied unchanged. Only downstream code assigns them meaning.
+batch_size = 1
+completed_output_qubits = [1, 2]
+purpose = "demonstrate physical-to-logical output remapping"
+# Calibration paths may also be absolute or relative to this manifest.
+readout_calibration_file = "readout_calibration.toml"
