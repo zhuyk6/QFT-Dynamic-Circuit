@@ -2,7 +2,7 @@
 
 This script computes strict metrics for finite-Q ideal and uniform baselines via
 Monte Carlo, arithmetic-ideal strict success via closed-form expression, and
-optionally experiments via histograms.
+optionally experiments via logical measurement datasets.
 """
 
 import logging
@@ -50,17 +50,17 @@ def run_strict_benchmark(
     k_list: list[int],
     m_mc: int,
     seed: int,
-    histogram_paths: list[Path],
+    dataset_paths: list[Path],
 ) -> CombinedCurveResult:
     """Run strict benchmark for ideal, uniform, arithmetic baselines,
-    and optionally experiments via histograms.
+    and optionally experiments via logical measurement datasets.
 
     Args:
         instance: Benchmark instance.
         k_list: Sample-count values K.
         m_mc: Monte Carlo trial count per K.
         seed: Random seed.
-        histogram_paths: Optional JSON file containing per-s histograms.
+        dataset_paths: Optional logical measurement dataset JSON files.
 
     Returns:
         Combined strict benchmark results.
@@ -97,9 +97,9 @@ def run_strict_benchmark(
     )
 
     experiments_curves: list[StrictCurveResult] = []
-    for filepath in histogram_paths:
-        histogram_sampler: HistogramSampler = HistogramSampler.from_file(
-            histogram_path=filepath,
+    for filepath in dataset_paths:
+        histogram_sampler: HistogramSampler = HistogramSampler.from_dataset_file(
+            dataset_path=filepath,
             instance=instance,
         )
         exp_curve = evaluate_strict_curve(
@@ -127,7 +127,7 @@ def main(
     k_list: list[int],
     m_mc: int,
     seed: int,
-    experiments_histograms: list[Path],
+    experiment_datasets: list[Path],
     verbose: bool,
 ) -> None:
     """Shor strict benchmark: ideal, uniform, arithmetic ideal baselines and experiments results."""
@@ -149,7 +149,7 @@ def main(
         k_list=k_list,
         m_mc=m_mc,
         seed=seed,
-        histogram_paths=experiments_histograms,
+        dataset_paths=experiment_datasets,
     )
 
     output_payload: StrictBenchmarkResultFileModel = StrictBenchmarkResultFileModel(
@@ -158,7 +158,7 @@ def main(
         m_mc=m_mc,
         seed=seed,
         result=result,
-        experiments_histogram_files=experiments_histograms,
+        experiment_dataset_files=experiment_datasets,
     )
 
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -178,9 +178,9 @@ def cli_manual_input(
     ] = [1, 2, 4, 8, 16],
     m_mc: Annotated[int, typer.Option(help="Monte Carlo trials for each K")] = 5000,
     seed: Annotated[int, typer.Option(help="Random seed")] = 7,
-    experiments_histograms: Annotated[
+    experiment_datasets: Annotated[
         list[Path],
-        typer.Option(help="JSON files with per-s histograms"),
+        typer.Option(help="ExperimentDataset JSON files with per-s counts"),
     ] = [],
     verbose: Annotated[
         bool, typer.Option("-v", "--verbose", help="Enable debug logging")
@@ -193,7 +193,7 @@ def cli_manual_input(
         k_list=k_list,
         m_mc=m_mc,
         seed=seed,
-        experiments_histograms=experiments_histograms,
+        experiment_datasets=experiment_datasets,
         verbose=verbose,
     )
 
@@ -221,9 +221,9 @@ def cli_file_input(
     ] = [1, 2, 4, 8, 16],
     m_mc: Annotated[int, typer.Option(help="Monte Carlo trials for each K")] = 5000,
     seed: Annotated[int, typer.Option(help="Random seed")] = 7,
-    experiments_histograms: Annotated[
+    experiment_datasets: Annotated[
         list[Path],
-        typer.Option(help="JSON files with per-s histograms"),
+        typer.Option(help="ExperimentDataset JSON files with per-s counts"),
     ] = [],
     verbose: Annotated[
         bool, typer.Option("-v", "--verbose", help="Enable debug logging")
@@ -246,7 +246,7 @@ def cli_file_input(
         k_list=k_list,
         m_mc=m_mc,
         seed=seed,
-        experiments_histograms=experiments_histograms,
+        experiment_datasets=experiment_datasets,
         verbose=verbose,
     )
 

@@ -6,7 +6,7 @@ from .samplers import (
     HistogramSampler,
     UniformSampler,
 )
-from .schemas import HistogramFileModel, StrictBenchmarkResultFileModel
+from .schemas import StrictBenchmarkResultFileModel
 from .strict_eval import (
     evaluate_arithmetic_curve,
     evaluate_strict_curve,
@@ -32,7 +32,6 @@ __all__: list[str] = [
     "DefaultStrictPostprocessor",
     "FiniteQIdealSampler",
     "HistogramSampler",
-    "HistogramFileModel",
     "StrictCurveResult",
     "StrictBenchmarkResultFileModel",
     "StrictMetrics",

@@ -7,15 +7,16 @@ from pathlib import Path
 import pytest
 from qiskit.quantum_info import Statevector
 
-from qft_dynamic.shor_benchmark.samplers import HistogramSampler
-from qft_dynamic.shor_benchmark.schemas import (
-    HistogramFileModel,
-    StrictBenchmarkResultFileModel,
+from qft_dynamic.experiment_data import (
+    ExperimentDataset,
+    LogicalCountsGroup,
+    LogicalCountsRun,
 )
+from qft_dynamic.shor_benchmark.samplers import HistogramSampler
+from qft_dynamic.shor_benchmark.schemas import StrictBenchmarkResultFileModel
 from qft_dynamic.shor_benchmark.simulation import (
     prepare_forward_qft_phase_state,
-    save_histograms,
-    simulate_histograms_for_instance,
+    simulate_dataset_for_instance,
 )
 from qft_dynamic.shor_benchmark.types import BenchmarkInstance
 from qft_dynamic.tools.build_circuits import qft_unitary
@@ -40,12 +41,12 @@ def test_phase_state_matches_swapless_qft_convention_for_aligned_case() -> None:
         assert probabilities[expected_bitstring] == pytest.approx(1.0)
 
 
-def test_simulate_histograms_for_small_instance() -> None:
-    """Simulation should produce one non-empty histogram per phase label."""
+def test_simulate_dataset_for_small_instance() -> None:
+    """Simulation should produce one non-empty run per phase label."""
 
     instance: BenchmarkInstance = BenchmarkInstance(n=15, a=2, r=4, m=2)
 
-    histograms: dict[int, Counter[int]] = simulate_histograms_for_instance(
+    dataset: ExperimentDataset = simulate_dataset_for_instance(
         instance=instance,
         batch_size=1,
         num_shots=32,
@@ -54,46 +55,55 @@ def test_simulate_histograms_for_small_instance() -> None:
         thermal_relaxation=False,
     )
 
-    assert sorted(histograms.keys()) == [0, 1, 2, 3]
-    s_value: int
-    for s_value in range(instance.r):
-        assert sum(histograms[s_value].values()) == 32
-        assert histograms[s_value]
+    assert dataset.experiment_type == "shor_order_finding"
+    assert dataset.producer == "qiskit_aer"
+    assert dataset.attributes == {"n": 15, "a": 2, "r": 4, "m": 2}
+    assert [run.metadata for run in dataset.groups[0].runs] == [
+        {"s": 0},
+        {"s": 1},
+        {"s": 2},
+        {"s": 3},
+    ]
+    for s_value, run in enumerate(dataset.groups[0].runs):
+        assert run.num_shots == 32
+        assert run.counts == Counter({s_value: 32})
 
 
-def test_histogram_sampler_and_benchmark_can_load_histogram_file(
+def test_histogram_sampler_can_load_experiment_dataset(
     tmp_path: Path,
 ) -> None:
-    """HistogramSampler and strict benchmark should load histograms from disk."""
+    """HistogramSampler should consume the common logical dataset format."""
 
     instance: BenchmarkInstance = BenchmarkInstance(n=15, a=2, r=4, m=2)
-    histograms: dict[int, Counter[int]] = {
-        0: Counter({0: 8}),
-        1: Counter({1: 8}),
-        2: Counter({2: 8}),
-        3: Counter({3: 8}),
-    }
-    histogram_path: Path = tmp_path / "shor_histograms.json"
-
-    save_histograms(
-        instance=instance,
-        histograms=histograms,
-        output_path=histogram_path,
-        batch_size=2,
-        num_shots=8,
-        gate_error=False,
-        readout_error=False,
-        thermal_relaxation=False,
+    dataset: ExperimentDataset = ExperimentDataset(
+        dataset_id="shor-test",
+        experiment_type="shor_order_finding",
+        num_qubits=2,
+        bit_order="msb_first",
+        producer="test",
+        attributes={"n": 15, "a": 2, "r": 4, "m": 2},
+        groups=[
+            LogicalCountsGroup(
+                name="example",
+                runs=[
+                    LogicalCountsRun(
+                        run_id=f"s-{s_value}",
+                        metadata={"s": s_value},
+                        counts=Counter({s_value: 8}),
+                    )
+                    for s_value in range(4)
+                ],
+            )
+        ],
     )
+    dataset_path: Path = tmp_path / "shor-dataset.json"
+    dataset.save(dataset_path)
 
-    sampler: HistogramSampler = HistogramSampler.from_file(
-        histogram_path=histogram_path,
+    sampler: HistogramSampler = HistogramSampler.from_dataset_file(
+        dataset_path=dataset_path,
         instance=instance,
     )
     assert sampler.histograms[1][1] == 8
-
-    histogram_file: HistogramFileModel = HistogramFileModel.load(histogram_path)
-    assert histogram_file.instance == instance
 
 
 def test_strict_benchmark_output_schema_round_trip(tmp_path: Path) -> None:
@@ -139,7 +149,7 @@ def test_strict_benchmark_output_schema_round_trip(tmp_path: Path) -> None:
                         }
                     ],
                 },
-                "experiments_histogram_files": ["/tmp/example.json"],
+                "experiment_dataset_files": ["/tmp/example.json"],
             }
         ),
         encoding="utf-8",
@@ -153,4 +163,4 @@ def test_strict_benchmark_output_schema_round_trip(tmp_path: Path) -> None:
 
     assert loaded.instance.q == 4
     assert len(loaded.result.experiments) == 1
-    assert len(loaded.experiments_histogram_files) == 1
+    assert len(loaded.experiment_dataset_files) == 1

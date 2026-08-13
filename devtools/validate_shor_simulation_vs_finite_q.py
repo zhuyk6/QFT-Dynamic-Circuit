@@ -14,7 +14,7 @@ most informative view is:
 
 The script can either:
 
-- load an existing histogram JSON file, or
+- load an existing logical measurement dataset, or
 - run a fresh noiseless simulation and then plot the comparison.
 
 The figure includes one subplot per selected phase label ``s`` and an optional
@@ -32,9 +32,11 @@ from matplotlib.artist import Artist
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
-from qft_dynamic.shor_benchmark.samplers import finite_q_ideal_probability
-from qft_dynamic.shor_benchmark.schemas import HistogramFileModel
-from qft_dynamic.shor_benchmark.simulation import simulate_histograms_for_instance
+from qft_dynamic.shor_benchmark.samplers import (
+    HistogramSampler,
+    finite_q_ideal_probability,
+)
+from qft_dynamic.shor_benchmark.simulation import simulate_dataset_for_instance
 from qft_dynamic.shor_benchmark.types import BenchmarkInstance
 
 NUMERICAL_ZERO_TOLERANCE: float = 1e-15
@@ -58,9 +60,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--r", type=int, help="Order r")
     parser.add_argument("--m", type=int, help="Control qubit count")
     parser.add_argument(
-        "--histogram",
+        "--dataset",
         type=Path,
-        help="Existing histogram JSON file produced by the Shor simulation flow",
+        help="Existing ExperimentDataset JSON produced by the Shor simulation flow",
     )
     parser.add_argument(
         "--batch-size",
@@ -114,14 +116,11 @@ def load_or_simulate_histograms(
         ValueError: If required arguments are missing or inconsistent.
     """
 
-    if args.histogram is not None:
-        histogram_file: HistogramFileModel = HistogramFileModel.load(args.histogram)
-        instance: BenchmarkInstance = histogram_file.instance
-        histograms: dict[int, Counter[int]] = {
-            s_value: Counter(y_counts)
-            for s_value, y_counts in histogram_file.histograms.items()
-        }
-        source_label: str = f"loaded histogram ({args.histogram})"
+    if args.dataset is not None:
+        sampler: HistogramSampler = HistogramSampler.from_dataset_file(args.dataset)
+        instance: BenchmarkInstance = sampler.instance
+        histograms: dict[int, Counter[int]] = sampler.histograms
+        source_label: str = f"loaded dataset ({args.dataset})"
         return instance, histograms, source_label
 
     missing_fields: list[str] = []
@@ -143,7 +142,7 @@ def load_or_simulate_histograms(
         r=args.r,
         m=args.m,
     )
-    histograms = simulate_histograms_for_instance(
+    dataset = simulate_dataset_for_instance(
         instance=instance,
         batch_size=args.batch_size,
         num_shots=args.num_shots,
@@ -151,6 +150,17 @@ def load_or_simulate_histograms(
         readout_error=False,
         thermal_relaxation=False,
     )
+    simulated_histograms: dict[int, Counter[int]] = {}
+    for run in dataset.groups[0].runs:
+        s_value = run.metadata.get("s")
+        if isinstance(s_value, bool) or not isinstance(s_value, int):
+            raise ValueError("simulated Shor run metadata 's' must be an integer")
+        simulated_histograms[s_value] = Counter(run.counts)
+    histogram_sampler: HistogramSampler = HistogramSampler(
+        instance=instance,
+        histograms=simulated_histograms,
+    )
+    histograms = histogram_sampler.histograms
     source_label = (
         "fresh noiseless simulation "
         f"(batch_size={args.batch_size}, shots={args.num_shots})"

@@ -15,10 +15,23 @@ from math import cos, pi, sin
 from pathlib import Path
 from typing import Literal
 
-from .schemas import HistogramFileModel
+from qft_dynamic.experiment_data import ExperimentDataset, MetadataValue
+
 from .types import BenchmarkInstance
 
 logger: logging.Logger = logging.getLogger(__name__)
+
+
+def _required_int_attribute(
+    attributes: dict[str, MetadataValue],
+    name: str,
+) -> int:
+    """Read one required integer from generic dataset metadata."""
+
+    value: MetadataValue | None = attributes.get(name)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"dataset metadata {name!r} must be an integer")
+    return value
 
 
 def finite_q_ideal_probability(y: int, s: int, instance: BenchmarkInstance) -> float:
@@ -251,15 +264,15 @@ class HistogramSampler:
     histograms: dict[int, Counter[int]]
 
     @classmethod
-    def from_file(
+    def from_dataset_file(
         cls,
-        histogram_path: Path,
+        dataset_path: Path,
         instance: BenchmarkInstance | None = None,
     ) -> "HistogramSampler":
-        """Load histogram data from a JSON file.
+        """Load histogram data from a logical measurement dataset.
 
         Args:
-            histogram_path: Path to the histogram JSON file.
+            dataset_path: Path to an ``ExperimentDataset`` JSON file.
             instance: Optional benchmark instance to validate against the file.
 
         Returns:
@@ -269,18 +282,31 @@ class HistogramSampler:
             ValueError: If the file instance is inconsistent with ``instance``.
         """
 
-        histogram_file: HistogramFileModel = HistogramFileModel.load(histogram_path)
-        loaded_instance: BenchmarkInstance = histogram_file.instance
+        dataset: ExperimentDataset = ExperimentDataset.load(dataset_path)
+        if dataset.experiment_type != "shor_order_finding":
+            raise ValueError(
+                "Shor histogram dataset must use experiment_type='shor_order_finding'"
+            )
+        loaded_instance: BenchmarkInstance = BenchmarkInstance(
+            n=_required_int_attribute(dataset.attributes, "n"),
+            a=_required_int_attribute(dataset.attributes, "a"),
+            r=_required_int_attribute(dataset.attributes, "r"),
+            m=_required_int_attribute(dataset.attributes, "m"),
+        )
+        if dataset.num_qubits != loaded_instance.m:
+            raise ValueError("dataset num_qubits does not match Shor instance m")
         if instance is not None and loaded_instance != instance:
             raise ValueError(
-                "histogram file instance does not match requested instance"
+                "histogram dataset instance does not match requested instance"
             )
 
         loaded_histograms: dict[int, Counter[int]] = {}
-        s_value: int
-        y_counts: dict[int, int]
-        for s_value, y_counts in histogram_file.histograms.items():
-            loaded_histograms[s_value] = Counter(y_counts)
+        for group in dataset.groups:
+            for run in group.runs:
+                s_value: int = _required_int_attribute(run.metadata, "s")
+                if s_value in loaded_histograms:
+                    raise ValueError(f"duplicate histogram phase label s={s_value}")
+                loaded_histograms[s_value] = Counter(run.counts)
 
         sampler: HistogramSampler = cls(
             instance=loaded_instance,
@@ -291,12 +317,14 @@ class HistogramSampler:
     def __post_init__(self) -> None:
         """Validate that histograms cover all phase labels in [0, r - 1]."""
 
-        missing: list[int] = []
-        for s in range(self.instance.r):
-            if s not in self.histograms:
-                missing.append(s)
-        if missing:
-            raise ValueError(f"histograms missing phase labels: {missing}")
+        expected_labels: set[int] = set(range(self.instance.r))
+        observed_labels: set[int] = set(self.histograms)
+        if observed_labels != expected_labels:
+            raise ValueError(
+                "histogram phase labels must exactly match the instance; "
+                f"missing={sorted(expected_labels - observed_labels)}, "
+                f"unexpected={sorted(observed_labels - expected_labels)}"
+            )
         for s, hist in self.histograms.items():
             if not hist:
                 raise ValueError(f"histogram for s={s} is empty")

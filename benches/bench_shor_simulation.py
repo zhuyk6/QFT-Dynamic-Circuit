@@ -1,4 +1,4 @@
-"""Run Qiskit simulation and save per-s histograms for Shor strict benchmark."""
+"""Run Qiskit simulation and save a Shor logical measurement dataset."""
 
 import logging
 import warnings
@@ -8,10 +8,7 @@ from typing import Annotated
 import typer
 from pydantic import BaseModel, Field
 
-from qft_dynamic.shor_benchmark.simulation import (
-    save_histograms,
-    simulate_histograms_for_instance,
-)
+from qft_dynamic.shor_benchmark.simulation import simulate_dataset_for_instance
 from qft_dynamic.shor_benchmark.types import BenchmarkInstance
 
 app = typer.Typer()
@@ -63,7 +60,7 @@ def main(
     thermal_relaxation: bool,
     verbose: bool,
 ) -> None:
-    """Simulate per-s histograms for the Shor strict benchmark."""
+    """Simulate per-s logical counts for the Shor strict benchmark."""
     setup_logging("logs/shor-simulation.log", verbose)
     setup_warnings()
 
@@ -79,7 +76,7 @@ def main(
         thermal_relaxation,
     )
 
-    histograms = simulate_histograms_for_instance(
+    dataset = simulate_dataset_for_instance(
         instance=instance,
         batch_size=batch_size,
         num_shots=num_shots,
@@ -87,22 +84,13 @@ def main(
         readout_error=readout_error,
         thermal_relaxation=thermal_relaxation,
     )
-    save_histograms(
-        instance=instance,
-        histograms=histograms,
-        output_path=output,
-        batch_size=batch_size,
-        num_shots=num_shots,
-        gate_error=gate_error,
-        readout_error=readout_error,
-        thermal_relaxation=thermal_relaxation,
-    )
-    print(f"Saved simulated histograms to: {output}")
+    dataset.save(output)
+    print(f"Saved simulated logical counts to: {output}")
 
     logger.info("Main end.")
 
 
-@app.command("intput")
+@app.command("input")
 def cli_manual_input(
     n: Annotated[int, typer.Argument(help="Modulus N")],
     a: Annotated[int, typer.Argument(help="Base a")],
@@ -112,7 +100,7 @@ def cli_manual_input(
         int, typer.Argument(help="Tile size of the optimized QFT block")
     ],
     output: Annotated[
-        Path, typer.Argument(help="Output JSON path for simulated histograms")
+        Path, typer.Argument(help="Output counter ExperimentDataset JSON")
     ],
     num_shots: Annotated[
         int, typer.Option(help="Simulation shots per phase label s")
@@ -127,7 +115,7 @@ def cli_manual_input(
         typer.Option("-v", "--verbose", help="Logging DEBUG mode"),
     ] = False,
 ) -> None:
-    """Simulate per-s histograms for the Shor strict benchmark."""
+    """Simulate a Shor logical measurement dataset."""
     instance = BenchmarkInstance(n, a, r, m)
     main(
         instance=instance,
@@ -161,7 +149,7 @@ def cli_file_input(
         int, typer.Argument(help="Tile size of the optimized QFT block")
     ],
     output: Annotated[
-        Path, typer.Argument(help="Output JSON path for simulated histograms")
+        Path, typer.Argument(help="Output counter ExperimentDataset JSON")
     ],
     num_shots: Annotated[
         int, typer.Option(help="Simulation shots per phase label s")
@@ -176,7 +164,7 @@ def cli_file_input(
         typer.Option("-v", "--verbose", help="Logging DEBUG mode"),
     ] = False,
 ) -> None:
-    """Simulate per-s histograms for the Shor strict benchmark from a JSON file."""
+    """Simulate a Shor logical measurement dataset from an instance JSON file."""
     instance_data = InstanceModel.model_validate_json(input_file.read_text())
     instance = BenchmarkInstance(
         n=instance_data.n,
