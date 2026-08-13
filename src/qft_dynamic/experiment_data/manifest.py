@@ -49,6 +49,7 @@ class ExperimentManifest(BaseModel):
     bit_order: Literal["msb_first"]
     raw_data_dir: Path
     filename_metadata_regex: str = Field(min_length=1)
+    attributes: dict[str, MetadataValue] = Field(default_factory=dict)
     groups: list[ExperimentManifestGroup] = Field(min_length=1)
 
     @model_validator(mode="after")

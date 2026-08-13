@@ -107,8 +107,9 @@ def _load_group(
         }
         runs.append(
             LogicalCountsRun(
+                run_id=input_path.stem,
+                source_ref=input_path.name,
                 counts=load_logical_counter(input_path=input_path, group=group),
-                source_file=input_path.name,
                 metadata=metadata,
             )
         )
@@ -150,10 +151,12 @@ def load_experiment_dataset(manifest_path: Path) -> ExperimentDataset:
         for group in manifest.groups
     ]
     return ExperimentDataset(
-        schema_version=1,
+        schema_version=2,
         dataset_id=manifest.dataset_id,
         experiment_type=manifest.experiment_type,
         num_qubits=manifest.num_qubits,
         bit_order=manifest.bit_order,
+        producer="physical_npz",
+        attributes=dict(manifest.attributes),
         groups=groups,
     )

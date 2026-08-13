@@ -31,14 +31,15 @@ def counts_to_probabilities(
             num_shots: int = counts_run.num_shots
             if num_shots <= 0:
                 raise ValueError(
-                    f"cannot normalize empty counter from {counts_run.source_file!r}"
+                    f"cannot normalize empty counter from run {counts_run.run_id!r}"
                 )
             probabilities: dict[int, float] = {
                 state: count / num_shots for state, count in counts_run.counts.items()
             }
             probability_runs.append(
                 LogicalProbabilitiesRun(
-                    source_file=counts_run.source_file,
+                    run_id=counts_run.run_id,
+                    source_ref=counts_run.source_ref,
                     metadata=counts_run.metadata,
                     num_shots=num_shots,
                     probabilities=probabilities,
@@ -57,5 +58,7 @@ def counts_to_probabilities(
         experiment_type=dataset.experiment_type,
         num_qubits=dataset.num_qubits,
         bit_order=dataset.bit_order,
+        producer=dataset.producer,
+        attributes=dataset.attributes,
         groups=probability_groups,
     )

@@ -12,6 +12,9 @@ raw_data_dir = "raw"
 # Named regex groups become string metadata for each matching filename stem.
 filename_metadata_regex = '_k(?P<k>\d+)'
 
+[attributes]
+campaign = "physical-data-interface-demo"
+
 [[groups]]
 name = "swapped-readout-demo"
 # file_glob is evaluated inside raw_data_dir.

@@ -1,4 +1,4 @@
-"""Manifest-driven loading of physical experiment data as logical counters."""
+"""Common logical measurement data and physical-experiment import adapters."""
 
 from .calibration import (
     PhysicalQubitReadoutCalibration,

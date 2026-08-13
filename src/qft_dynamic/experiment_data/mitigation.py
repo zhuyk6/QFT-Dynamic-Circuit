@@ -153,7 +153,8 @@ def mitigate_probabilities(
             num_shots: int = run.num_shots
             mitigated_runs.append(
                 LogicalProbabilitiesRun(
-                    source_file=run.source_file,
+                    run_id=run.run_id,
+                    source_ref=run.source_ref,
                     metadata=run.metadata,
                     num_shots=num_shots,
                     probabilities=_mitigate_probability_distribution(
@@ -175,5 +176,7 @@ def mitigate_probabilities(
         experiment_type=dataset.experiment_type,
         num_qubits=dataset.num_qubits,
         bit_order=dataset.bit_order,
+        producer=dataset.producer,
+        attributes=dataset.attributes,
         groups=mitigated_groups,
     )
