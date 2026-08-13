@@ -1,23 +1,39 @@
-# Experiment data normalization
+# Logical experiment data
 
-The experiment-data package has one responsibility: convert physical
-single-shot files into logical integer counters. It does not select or compute
-metrics.
+The experiment-data package defines the source-independent logical measurement
+format used between acquisition and analysis. Physical NPZ loading is one input
+adapter for that format; analysis does not depend on the raw acquisition
+format. The package does not select or compute experiment metrics.
 
 ```text
 physical NPZ + manifest
   -> classified physical-bit columns
   -> physical-to-logical column mapping
   -> MSB-first logical Counter[int]
+  -> ExperimentDataset (schema version 2)
   -> ProbabilityExperimentDataset
   -> optional independent readout mitigation
+
+Qiskit circuit + sampler
+  -> Counter[int]
+  -> workflow-defined LogicalCountsRun and LogicalCountsGroup
+  -> ExperimentDataset (schema version 2)
 ```
+
+`qft_dynamic.tools.simulation.sample_counts` intentionally returns only a
+`Counter[int]`. It belongs to the Qiskit execution layer and does not know the
+experiment type, group configuration, run identity, or run metadata. Each
+simulation workflow assigns those semantics immediately above that boundary
+and saves an `ExperimentDataset`; simulation does not round-trip through the
+vendor-specific physical NPZ format.
 
 ## Manifest
 
-The current six-qubit data is described by
-`configs/experiments/qft_fidelity_6q.toml`. The manifest describes how files are
-located and converted into logical outputs; it does not define metrics.
+The checked-in two-qubit example is described by
+`data/experiments_example/manifest.toml`. The manifest describes how files are
+located and converted into logical outputs; it does not define metrics. The
+manifest schema remains version 1 and is distinct from normalized dataset
+schema version 2.
 
 ### Top-level fields
 
@@ -30,6 +46,7 @@ located and converted into logical outputs; it does not define metrics.
 | `bit_order` | Canonical logical integer convention. The current loader supports only `msb_first`. |
 | `raw_data_dir` | Directory containing raw NPZ files. It may be absolute or relative to the manifest directory. |
 | `filename_metadata_regex` | Regular expression applied to each filename stem. It must contain at least one named capture group. Captured text is preserved as run metadata. |
+| `attributes` | Optional dataset-wide scalar or scalar-list context copied unchanged into the normalized dataset. |
 | `groups` | One or more file collections with their own glob, physical layout, logical mapping, and attributes. |
 
 For `bit_order = "msb_first"`, a logical row `[b0, b1, ..., bn-1]` is converted
@@ -108,7 +125,7 @@ from qft_dynamic.experiment_data import (
 )
 
 dataset = load_experiment_dataset(
-    Path("configs/experiments/qft_fidelity_6q.toml")
+    Path("data/experiments_example/manifest.toml")
 )
 probabilities: ProbabilityExperimentDataset = counts_to_probabilities(dataset)
 
@@ -118,11 +135,23 @@ for group in dataset.groups:
         # Select TVD, fidelity, success probability, or plotting here.
 ```
 
-Each `LogicalCountsRun` contains its logical `Counter[int]`, source filename, and
-named string metadata extracted from the filename. The source path identifies
-the run; there is no separate run ID. The loader does not apply readout
-mitigation, calculate target probabilities, aggregate runs, or produce plotting
-data.
+Each `LogicalCountsRun` contains its logical `Counter[int]`, a stable `run_id`,
+an optional raw-artifact `source_ref`, and named metadata. For the physical NPZ
+adapter, both identifiers initially use the source filename, while filename
+regex captures remain string metadata. Other producers may use native numeric
+or boolean metadata and need not provide a source reference. The loader does
+not apply readout mitigation, calculate target probabilities, aggregate runs,
+or produce plotting data.
+
+At the dataset level, `producer` identifies the adapter that created the
+normalized data. The physical loader sets it to `physical_npz`. Dataset
+`attributes`, group `attributes`, and run `metadata` separate configuration by
+scope without assigning experiment-specific meaning in the common data layer.
+
+The normalized models enforce their structural invariants: groups and run IDs
+are unique at their respective scopes, counts contain positive shot counts,
+logical states fit within `num_qubits`, and probability distributions are
+finite, non-negative, and normalized.
 
 Counter-to-probability conversion is generic and does not imply mitigation.
 Mitigation is a subsequent Probability-to-Probability transform, so the
@@ -143,7 +172,7 @@ The mitigation step matches these entries to `physical_qubits` and applies
 matrix. It models independent single-qubit readout errors; correlated readout
 errors are outside this format.
 
-The normalized model supports JSON round trips directly:
+The schema-version-2 normalized model supports JSON round trips directly:
 
 ```python
 dataset.save(Path("results/qft-logical-counts.json"))
@@ -155,23 +184,20 @@ JSON representation. Counter-to-probability conversion preserves it explicitly
 on each probability run, allowing downstream analysis to retain shot-dependent
 uncertainty information without requiring the Counter dataset.
 
-## Optional normalized JSON
+## Normalization CLI
 
-The generic normalization command writes probabilities by default. Counter and
-readout-mitigated probability outputs are optional:
+The normalization command writes exactly one canonical counter dataset:
 
 ```bash
 uv run python devtools/normalize_experiment_data.py \
-  configs/experiments/qft_fidelity_6q.toml \
-  --probability-output results/qft-logical-probabilities.json \
-  --counter-output results/qft-logical-counts.json \
-  --mitigation-output results/qft-logical-probabilities-mitigated.json
+  data/experiments_example/manifest.toml \
+  results/qft-logical-counts.json
 ```
 
-- `--probability-output` is required and produces a `ProbabilityExperimentDataset`.
-- `--counter-output` optionally preserves the
-intermediate `ExperimentDataset`; it is only needed by downstream work that requires integer shot counts.
-- The optional mitigation output is also an ordinary `ProbabilityExperimentDataset`; mitigation is an operation, not a distinct representation. Omitting `--mitigation-output` does not look for a
-calibration attribute.
+Bench and plot CLIs likewise exchange `ExperimentDataset` counter JSON. Plotting
+and analysis code calls `counts_to_probabilities()` in memory when probabilities
+are required. `ProbabilityExperimentDataset` and `mitigate_probabilities()`
+remain library-level derived representations and operations, not the standard
+script interchange format.
 
 Raw IQ arrays remain in the source NPZ files. They are not loaded because the current common representation starts from the already classified bit arrays.

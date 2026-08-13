@@ -42,31 +42,27 @@ From the repository root, normalize the physical files to JSON:
 ```bash
 uv run python devtools/normalize_experiment_data.py \
   data/experiments_example/manifest.toml \
-  --probability-output /tmp/experiment-example.json \
-  --counter-output /tmp/experiment-example-counts.json \
-  --mitigation-output /tmp/experiment-example-mitigated.json
+  /tmp/experiment-example-counts.json
 ```
 
-The default probability JSON can be restored directly as the common Pydantic
-model:
+The counter JSON can be restored directly as the common Pydantic model:
 
 ```python
 from pathlib import Path
 
-from qft_dynamic.experiment_data import ProbabilityExperimentDataset
+from qft_dynamic.experiment_data import ExperimentDataset
 
-dataset = ProbabilityExperimentDataset.load(Path("/tmp/experiment-example.json"))
+dataset = ExperimentDataset.load(Path("/tmp/experiment-example-counts.json"))
 first_run = dataset.groups[0].runs[0]
 
 assert first_run.metadata == {"k": "00"}
+assert first_run.run_id == first_run.source_ref
 assert first_run.num_shots == 8
+assert dataset.schema_version == 2
+assert dataset.producer == "physical_npz"
 ```
 
-The default JSON contains normalized logical probabilities and the originating
-shot count. `--counter-output` additionally preserves measured integer
-counters. When `--mitigation-output` is given, that JSON contains independently
-readout-mitigated logical probabilities. The calibration is matched by physical
-qubit number and then reordered with `logical_from_physical`; it is therefore
-safe for the deliberately swapped logical order in this example.
-The calibration filename is a generic group attribute and is only interpreted
-when mitigation is requested.
+The counter JSON preserves measured integer counts as the canonical normalized
+artifact. Consumers derive probabilities in memory when needed. The calibration
+filename remains a generic group attribute for callers that explicitly invoke
+the library-level mitigation operation.
