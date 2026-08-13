@@ -1,20 +1,8 @@
-r"""Benchmark process fidelity for dynamic QFT.
+r"""Simulate dynamic-QFT process-fidelity logical measurement datasets."""
 
-Process fidelity is defined as:
-    F = [ (1 / 2^n) * sum_{k=0}^{2^n-1} sqrt( Pr(k | QFT_tilde(sigma_k_star)) ) ]^2
-
-where
-    sigma_k_star = ( \otimes_{l=0}^{n-1} Rz(-pi * k / 2^l, l) ) H^{\otimes n} |0>
-
-For large n, a sampled estimator is used:
-    F ~= (m/(m-1)) * [ (1/m) * sum_l sqrt(p_l) ]^2 - (1/(m*(m-1))) * sum_l p_l
-"""
-
-import json
 import math
 import random
 import warnings
-from collections import Counter
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -23,6 +11,11 @@ from qiskit import QuantumCircuit
 from qiskit_ibm_runtime import Sampler
 from tqdm import tqdm
 
+from qft_dynamic.experiment_data import (
+    ExperimentDataset,
+    LogicalCountsGroup,
+    LogicalCountsRun,
+)
 from qft_dynamic.tools.config import resolve_shor_benchmark_paths
 from qft_dynamic.tools.simulation import (
     NoiseModelConfig,
@@ -37,273 +30,187 @@ app = typer.Typer()
 
 def setup_warnings() -> None:
     """Suppress noisy Qiskit warnings."""
+
     warnings.filterwarnings("ignore", module="qiskit")
 
 
 def prepare_sigma_k_star(num_qubits: int, k: int) -> QuantumCircuit:
-    """Prepare sigma_k_star = (prod_l Rz(-pi*k/2^l, l)) H^n |0>."""
-    prep = QuantumCircuit(num_qubits)
-    prep.h(range(num_qubits))
-    for i in range(num_qubits):
-        theta = -math.pi * k / (2**i)
-        prep.rz(theta, i)
-    prep.barrier()
-    return prep
+    """Prepare the process-fidelity input state indexed by ``k``.
 
+    Args:
+        num_qubits: Logical circuit width.
+        k: Target basis-state index.
 
-def probability_of_k(
-    num_qubits: int,
-    k: int,
-    transpiled_qft: QuantumCircuit,
-    sampler: Sampler,
-    num_shots: int,
-) -> float:
-    """Estimate Pr(k | QFT_tilde(sigma_k_star)) by sampling."""
-    prep = prepare_sigma_k_star(num_qubits, k)
-    total_circuit = compose_with_layout(transpiled_qft, prep)
-
-    counts: Counter[int] = sample_counts(
-        circuit=total_circuit,
-        sampler=sampler,
-        num_shots=num_shots,
-    )
-    p_k = counts[k] / num_shots
-    return p_k
-
-
-def process_fidelity_exact(
-    num_qubits: int,
-    transpiled_qft: QuantumCircuit,
-    sampler: Sampler,
-    num_shots: int,
-) -> float:
-    """Exact fidelity by enumerating all k.
-
-    The formula is
-        F = [(1/N) * sum_{k=0}^{N-1} sqrt(Pr(k | QFT_tilde(sigma_k_star)))]^2
+    Returns:
+        State-preparation circuit for ``sigma_k_star``.
     """
-    n_states: int = 2**num_qubits
-    s = 0.0
-    for k in range(n_states):
-        p_k = probability_of_k(
-            num_qubits=num_qubits,
-            k=k,
-            transpiled_qft=transpiled_qft,
-            sampler=sampler,
-            num_shots=num_shots,
-        )
-        s += math.sqrt(p_k)
 
-    fidelity = (s / n_states) ** 2
-    return fidelity
+    preparation = QuantumCircuit(num_qubits)
+    preparation.h(range(num_qubits))
+    for qubit_index in range(num_qubits):
+        theta: float = -math.pi * k / (2**qubit_index)
+        preparation.rz(theta, qubit_index)
+    preparation.barrier()
+    return preparation
 
 
-def process_fidelity_sampled(
+def select_targets(
     num_qubits: int,
-    transpiled_qft: QuantumCircuit,
-    sampler: Sampler,
-    num_shots: int,
+    mode: Literal["exact", "sample"],
     num_samples: int,
-    seed: int | None = None,
-) -> float:
-    """Sampled unbiased estimator of process fidelity.
+    seed: int | None,
+) -> list[int]:
+    """Select exact or sampled process-fidelity target indices."""
 
-    The formula is
-        F = [(m/(m-1)) * (mean sqrt(p_k))^2] - [sum(p_k) / (m*(m-1))]
-    """
+    num_states: int = 1 << num_qubits
+    if mode == "exact":
+        return list(range(num_states))
     if num_samples < 2:
-        raise ValueError("num_samples must be >= 2 for sampled estimator")
-
-    if num_samples > 2**num_qubits:
-        raise ValueError("num_samples must be <= 2**num_qubits for sampled estimator")
-
-    rng = random.Random(seed)
-    n_states: int = 2**num_qubits
-    sampled_k = rng.sample(range(n_states), num_samples)
-
-    p_values: list[float] = []
-    sqrt_p_values: list[float] = []
-    for k in sampled_k:
-        p_k = probability_of_k(
-            num_qubits=num_qubits,
-            k=k,
-            transpiled_qft=transpiled_qft,
-            sampler=sampler,
-            num_shots=num_shots,
-        )
-        p_values.append(p_k)
-        sqrt_p_values.append(math.sqrt(p_k))
-
-    m = num_samples
-    mean_sqrt_p = sum(sqrt_p_values) / m
-    sum_p = sum(p_values)
-
-    fidelity: float = (m / (m - 1.0)) * (mean_sqrt_p**2) - (sum_p / (m * (m - 1.0)))
-    return fidelity
+        raise ValueError("num_samples must be at least two")
+    if num_samples > num_states:
+        raise ValueError("num_samples must not exceed the number of logical states")
+    return random.Random(seed).sample(range(num_states), num_samples)
 
 
-def benchmark_process_fidelity(
+def simulate_process_fidelity_group(
     num_qubits: int,
     batch_size: int,
-    mode: Literal["exact", "sample"],
-    num_shots: int = 10**4,
-    num_samples: int = 20,
-    seed: int | None = None,
-    noise_config: NoiseModelConfig | None = None,
-) -> float:
-    """Run process-fidelity benchmark for one batch size."""
-    assert num_qubits % batch_size == 0, "num_qubits must be multiple of batch_size"
+    target_k_values: list[int],
+    num_shots: int,
+    noise_config: NoiseModelConfig,
+) -> LogicalCountsGroup:
+    """Simulate full logical counts for one batch-size configuration.
+
+    Args:
+        num_qubits: Logical circuit width.
+        batch_size: Dynamic-QFT tile size.
+        target_k_values: Process-fidelity input indices to simulate.
+        num_shots: Shots per target index.
+        noise_config: Enabled Aer noise components.
+
+    Returns:
+        One dataset group containing a run per target index.
+    """
 
     resolved_paths = resolve_shor_benchmark_paths()
-
     context = build_qft_simulation_context(
         num_qubits=num_qubits,
         batch_size=batch_size,
         hardware_config_path=resolved_paths.hardware_config_path,
         opt_circuits_path=resolved_paths.opt_circuits_path,
     )
-    sampler = build_sampler(
+    sampler: Sampler = build_sampler(
         backend=context.backend,
         noise_config=noise_config,
     )
-
-    match mode:
-        case "exact":
-            return process_fidelity_exact(
-                num_qubits=num_qubits,
-                transpiled_qft=context.transpiled_qft,
-                sampler=sampler,
-                num_shots=num_shots,
+    runs: list[LogicalCountsRun] = []
+    for target_k in target_k_values:
+        total_circuit: QuantumCircuit = compose_with_layout(
+            transpiled_circuit=context.transpiled_qft,
+            prepare_circuit=prepare_sigma_k_star(num_qubits, target_k),
+        )
+        counts = sample_counts(total_circuit, sampler, num_shots)
+        runs.append(
+            LogicalCountsRun(
+                run_id=f"k-{target_k}",
+                metadata={"k": target_k},
+                counts=counts,
             )
-        case "sample":
-            return process_fidelity_sampled(
-                num_qubits=num_qubits,
-                transpiled_qft=context.transpiled_qft,
-                sampler=sampler,
-                num_shots=num_shots,
-                num_samples=num_samples,
-                seed=seed,
-            )
-        case other:
-            raise ValueError(f"Unknown mode: {other}")
+        )
+
+    return LogicalCountsGroup(
+        name=f"batch-{batch_size}",
+        attributes={
+            "batch_size": batch_size,
+            "gate_error": noise_config.gate_error,
+            "readout_error": noise_config.readout_error,
+            "thermal_relaxation": noise_config.thermal_relaxation,
+        },
+        runs=runs,
+    )
 
 
-def run_benchmark_suite(
+def simulate_process_fidelity_dataset(
     num_qubits: int,
-    batch_size_list: list[int],
+    batch_sizes: list[int],
     mode: Literal["exact", "sample"],
     num_shots: int,
     num_samples: int,
     seed: int | None,
-    output_filename: Path,
-    auto_suffix: bool = True,
-    noise_config: NoiseModelConfig | None = None,
-) -> Path:
-    """Run fidelity benchmark for all batch sizes and save JSON."""
-    results: dict[int, float] = {}
+    noise_config: NoiseModelConfig,
+) -> ExperimentDataset:
+    """Simulate process-fidelity counts for every requested batch size."""
 
-    for batch_size in tqdm(batch_size_list):
-        fidelity = benchmark_process_fidelity(
+    target_k_values: list[int] = select_targets(
+        num_qubits=num_qubits,
+        mode=mode,
+        num_samples=num_samples,
+        seed=seed,
+    )
+    groups: list[LogicalCountsGroup] = [
+        simulate_process_fidelity_group(
             num_qubits=num_qubits,
             batch_size=batch_size,
-            mode=mode,
+            target_k_values=target_k_values,
             num_shots=num_shots,
-            num_samples=num_samples,
-            seed=seed,
             noise_config=noise_config,
         )
-        results[batch_size] = fidelity
-        print(f"Batch Size {batch_size}: process fidelity = {fidelity:.6f}")
-
-    # If `output_filename` already exists, append a suffix to avoid overwriting
-    filename = output_filename
-    if auto_suffix:
-        counter = 0
-        while filename.exists():
-            counter += 1
-            filename = filename.with_name(
-                f"{output_filename.stem}_{counter}{filename.suffix}"
-            )
-
-    if noise_config is None:
-        noise_config = NoiseModelConfig()
-
-    gate_error, readout_error, thermal_relaxation = noise_config
-
-    payload = {
-        "num_qubits": num_qubits,
-        "mode": mode,
-        "num_shots": num_shots,
-        "num_samples": num_samples,
-        "seed": seed,
-        "noise": {
-            "gate_error": gate_error,
-            "readout_error": readout_error,
-            "thermal_relaxation": thermal_relaxation,
+        for batch_size in tqdm(batch_sizes)
+        if num_qubits % batch_size == 0
+    ]
+    return ExperimentDataset(
+        dataset_id=f"qft-process-fidelity-{num_qubits}q",
+        experiment_type="process_fidelity",
+        num_qubits=num_qubits,
+        bit_order="msb_first",
+        producer="qiskit_aer",
+        attributes={
+            "sampling_mode": mode,
+            "num_samples": len(target_k_values),
+            **({"seed": seed} if seed is not None else {}),
         },
-        "fidelity_by_batch_size": results,
-    }
-
-    filename.parent.mkdir(parents=True, exist_ok=True)
-    with open(filename, "w") as f_out:
-        json.dump(payload, f_out, indent=4)
-
-    print(f"Saved benchmark results to: {filename}")
-    return filename
+        groups=groups,
+    )
 
 
 @app.command()
 def main(
-    output: Annotated[Path, typer.Argument(help="Output JSON file path")],
+    output: Annotated[
+        Path, typer.Argument(help="Output counter ExperimentDataset JSON")
+    ],
     num_qubits: Annotated[int, typer.Option(help="Number of qubits")] = 12,
-    batch_sizes: Annotated[
-        list[int],
-        typer.Option(
-            help="Batch sizes",
-        ),
-    ] = [1, 2, 3],
+    batch_sizes: Annotated[list[int], typer.Option(help="Batch sizes")] = [1, 2, 3],
     mode: Annotated[
         Literal["exact", "sample"],
-        typer.Option(help="exact: enumerate all k; sample: Monte Carlo estimator"),
+        typer.Option(help="Target-index selection mode"),
     ] = "sample",
-    num_shots: Annotated[int, typer.Option(help="Number of shots per circuit")] = 10**4,
-    num_samples: Annotated[
-        int, typer.Option(help="Number of samples for Monte Carlo estimator")
-    ] = 20,
-    seed: Annotated[int | None, typer.Option(help="Random seed")] = None,
+    num_shots: Annotated[int, typer.Option(help="Shots per target circuit")] = 10**4,
+    num_samples: Annotated[int, typer.Option(help="Sampled target count")] = 20,
+    seed: Annotated[int | None, typer.Option(help="Target-selection seed")] = None,
     gate_error: Annotated[bool, typer.Option(help="Enable gate error")] = True,
-    readout_error: Annotated[
-        bool,
-        typer.Option(help="Enable readout error"),
-    ] = True,
+    readout_error: Annotated[bool, typer.Option(help="Enable readout error")] = True,
     thermal_relaxation: Annotated[
-        bool,
-        typer.Option(
-            help="Enable thermal relaxation",
-        ),
-    ] = True,
-    auto_suffix: Annotated[
-        bool, typer.Option(help="Auto-incrementing output path if file exists")
+        bool, typer.Option(help="Enable thermal relaxation")
     ] = True,
 ) -> None:
-    """Benchmark process fidelity for dynamic QFT."""
-    setup_warnings()
+    """Simulate and save process-fidelity logical counts."""
 
-    run_benchmark_suite(
+    setup_warnings()
+    dataset: ExperimentDataset = simulate_process_fidelity_dataset(
         num_qubits=num_qubits,
-        batch_size_list=batch_sizes,
+        batch_sizes=batch_sizes,
         mode=mode,
         num_shots=num_shots,
         num_samples=num_samples,
         seed=seed,
-        output_filename=output,
-        auto_suffix=auto_suffix,
         noise_config=NoiseModelConfig(
             gate_error=gate_error,
             readout_error=readout_error,
             thermal_relaxation=thermal_relaxation,
         ),
     )
+    dataset.save(output)
+    print(f"Saved simulated logical counts to: {output}")
 
 
 if __name__ == "__main__":

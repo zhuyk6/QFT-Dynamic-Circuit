@@ -1,195 +1,712 @@
-"""Plot process-fidelity benchmark results."""
+"""Plot detailed QFT process-fidelity experiment data."""
 
-import json
 import math
-import re
-from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
+import numpy.typing as npt
 import typer
 from matplotlib_config import get_latex_figsize, plot_context
 
-app = typer.Typer()
+from qft_dynamic.experiment_data import (
+    ExperimentDataset,
+    LogicalProbabilitiesGroup,
+    LogicalProbabilitiesRun,
+    MetadataScalar,
+    MetadataValue,
+    ProbabilityExperimentDataset,
+    counts_to_probabilities,
+)
+
+app: typer.Typer = typer.Typer()
 PLOT_DIR: Path = Path(__file__).resolve().parent
 PLOT_CONFIG_PATH: Path = PLOT_DIR / "plot_config.toml"
 
 
-def _load_benchmark_results(
-    results_dir: Path,
-) -> dict[int, dict[str, np.ndarray[tuple[int], np.dtype[np.floating]]]]:
-    """Aggregate benchmark JSON files into mean/std series per batch size."""
-    files = sorted(results_dir.glob("qft*.json"))
-    pattern = re.compile(r"^qft(\d+)(?:_(\d+))?\.json$")
-    agg: defaultdict[int, defaultdict[int, list[float]]] = defaultdict(
-        lambda: defaultdict(list)
+def _load_probabilities(
+    counter_dataset: Path | None,
+    probability_dataset: Path | None,
+) -> ProbabilityExperimentDataset:
+    """Load exactly one supported CLI dataset representation.
+
+    Args:
+        counter_dataset: Counter dataset to convert to probabilities in memory.
+        probability_dataset: Probability dataset to use directly.
+
+    Returns:
+        Logical probabilities ready for fidelity analysis.
+
+    Raises:
+        typer.BadParameter: If neither input or both inputs are provided.
+    """
+
+    if (counter_dataset is None) == (probability_dataset is None):
+        raise typer.BadParameter(
+            "provide exactly one of --counter-dataset or --probability-dataset"
+        )
+    if counter_dataset is not None:
+        return counts_to_probabilities(ExperimentDataset.load(counter_dataset))
+    if probability_dataset is not None:
+        return ProbabilityExperimentDataset.load(probability_dataset)
+    raise typer.BadParameter(
+        "provide exactly one of --counter-dataset or --probability-dataset"
     )
 
-    for fp in files:
-        match = pattern.match(fp.name)
-        if match is None:
-            continue
 
-        num_qubits: int = int(match.group(1))
-        with open(fp, "r") as input_file:
-            payload = json.load(input_file)
+@dataclass(frozen=True)
+class ProcessFidelitySeries:
+    """Per-target and aggregate process-fidelity data for one group."""
 
-        fidelity_by_batch_size: dict[str, float] = payload.get(
-            "fidelity_by_batch_size", {}
+    name: str
+    target_k: npt.NDArray[np.int64]
+    target_probability: npt.NDArray[np.float64]
+    target_standard_error: npt.NDArray[np.float64]
+    mean_target_probability: float
+    process_fidelity: float
+    sampling_mode: Literal["exact", "sample"]
+
+
+@dataclass(frozen=True)
+class PrefixSuccessSeries:
+    """Mean completed-output prefix success for one group."""
+
+    name: str
+    completed_output_qubits: npt.NDArray[np.int64]
+    mean_success_probability: npt.NDArray[np.float64]
+    target_sem: npt.NDArray[np.float64]
+
+
+@dataclass(frozen=True)
+class PooledProbabilityDistribution:
+    """Shot-weighted probability distribution for repeated target runs."""
+
+    probabilities: dict[int, float]
+    num_shots: int
+
+
+def _validate_process_fidelity_dataset(
+    dataset: ProbabilityExperimentDataset,
+) -> None:
+    """Require the experiment type consumed by this plotting script."""
+
+    if dataset.experiment_type != "process_fidelity":
+        raise ValueError(
+            "plot_fidelity requires experiment_type='process_fidelity', "
+            f"got {dataset.experiment_type!r}"
         )
 
-        for batch_key, fid in fidelity_by_batch_size.items():
-            batch_size: int = int(batch_key)
-            agg[batch_size][num_qubits].append(fid)
 
-    stats: dict[int, dict[str, np.ndarray[tuple[int], np.dtype[np.floating]]]] = {}
-    for batch_size, n_dict in sorted(agg.items()):
-        n_list: list[int] = sorted(n_dict.keys())
-        mean_list: list[float] = []
-        std_list: list[float] = []
+def _target_k(run: LogicalProbabilitiesRun) -> int:
+    """Read the integer process-fidelity target from run metadata."""
 
-        for num_qubits in n_list:
-            arr = np.array(n_dict[num_qubits], dtype=float)
-            mean_list.append(arr.mean())
-            std_list.append(arr.std(ddof=0))
-
-        stats[batch_size] = {
-            "n": np.array(n_list, dtype=int),
-            "mean": np.array(mean_list, dtype=float),
-            "std": np.array(std_list, dtype=float),
-        }
-
-    return stats
+    target_value: MetadataValue | None = run.metadata.get("k")
+    if isinstance(target_value, bool) or not isinstance(target_value, (int, str)):
+        raise ValueError(
+            f"run {run.run_id!r} must have integer-compatible 'k' metadata"
+        )
+    try:
+        return int(target_value)
+    except ValueError as error:
+        raise ValueError(
+            f"run {run.run_id!r} has non-integer k={target_value!r}"
+        ) from error
 
 
-def _snap_to_integer_x(
-    points: list[tuple[float, float]],
-    x_min: int | None = None,
-    x_max: int | None = None,
-) -> list[tuple[float, float]]:
-    """Keep only one point per integer x after rounding."""
-    best: dict[int, tuple[float, float, float]] = {}
-    for x_value, y_value in points:
-        rounded_x: int = int(round(x_value))
-        if x_min is not None and rounded_x < x_min:
-            continue
-        if x_max is not None and rounded_x > x_max:
-            continue
+def _pool_probabilities_by_target(
+    group: LogicalProbabilitiesGroup,
+) -> dict[int, PooledProbabilityDistribution]:
+    """Pool repeated target runs using their shot counts as weights."""
 
-        dist: float = abs(x_value - rounded_x)
-        previous = best.get(rounded_x)
-        if previous is None:
-            best[rounded_x] = (dist, x_value, y_value)
-        else:
-            prev_dist, _prev_x, prev_y = previous
-            if dist < prev_dist or (math.isclose(dist, prev_dist) and y_value > prev_y):
-                best[rounded_x] = (dist, x_value, y_value)
+    weighted_probabilities: dict[int, dict[int, float]] = {}
+    shots_by_target: dict[int, int] = {}
+    run: LogicalProbabilitiesRun
+    for run in group.runs:
+        target_k: int = _target_k(run)
+        target_weights: dict[int, float] = weighted_probabilities.setdefault(
+            target_k, {}
+        )
+        state: int
+        probability: float
+        for state, probability in run.probabilities.items():
+            target_weights[state] = (
+                target_weights.get(state, 0.0) + probability * run.num_shots
+            )
+        shots_by_target[target_k] = shots_by_target.get(target_k, 0) + run.num_shots
 
-    return [(float(x), best[x][2]) for x in sorted(best.keys())]
+    return {
+        target_k: PooledProbabilityDistribution(
+            probabilities={
+                state: weighted_probability / shots_by_target[target_k]
+                for state, weighted_probability in target_weights.items()
+            },
+            num_shots=shots_by_target[target_k],
+        )
+        for target_k, target_weights in weighted_probabilities.items()
+    }
 
 
-def _load_baseline(baseline_csv: Path) -> dict[str, list[tuple[float, float]]]:
-    """Load baseline curves from the two-row-header CSV export."""
-    dataframe = pd.read_csv(baseline_csv, header=[0, 1])
-    level0_idx = pd.Index(dataframe.columns.get_level_values(0), dtype="object")
-    level1_idx = pd.Index(dataframe.columns.get_level_values(1), dtype="object")
-    level0 = level0_idx.to_series().replace(r"^Unnamed:.*$", pd.NA, regex=True).ffill()
-    level1 = level1_idx.to_series().replace(r"^Unnamed:.*$", pd.NA, regex=True)
-    dataframe.columns = pd.MultiIndex.from_arrays([level0, level1])
+def _probabilities_by_target(
+    group: LogicalProbabilitiesGroup,
+    num_qubits: int,
+) -> dict[int, PooledProbabilityDistribution]:
+    """Return pooled probabilities after validating target indices."""
 
-    methods = [m for m in dataframe.columns.get_level_values(0).unique()]
-    raw_data: dict[str, list[tuple[float, float]]] = {}
+    probabilities_by_target: dict[int, PooledProbabilityDistribution] = (
+        _pool_probabilities_by_target(group)
+    )
+    unexpected_targets: list[int] = sorted(
+        target_k
+        for target_k in probabilities_by_target
+        if target_k < 0 or target_k >= 1 << num_qubits
+    )
+    if unexpected_targets:
+        raise ValueError(
+            f"group {group.name!r} has target indices outside "
+            f"0..{(1 << num_qubits) - 1}: {unexpected_targets}"
+        )
+    return probabilities_by_target
 
-    method: str
-    for method in methods:
-        assert (method, "X") in dataframe.columns or (method, "Y") in dataframe.columns
-        x_series = pd.to_numeric(dataframe[(method, "X")], errors="coerce")
-        y_series = pd.to_numeric(dataframe[(method, "Y")], errors="coerce")
-        mask = x_series.notna() & y_series.notna()
-        raw_data[str(method)] = list(
-            zip(
-                x_series[mask].astype(float).to_list(),
-                y_series[mask].astype(float).to_list(),
+
+def _sampling_mode(
+    dataset: ProbabilityExperimentDataset,
+    group: LogicalProbabilitiesGroup,
+    observed_targets: set[int],
+) -> Literal["exact", "sample"]:
+    """Resolve the estimator from simulation metadata or target coverage.
+
+    Simulation datasets explicitly record ``sampling_mode``. Physical datasets
+    do not require that attribute, so a complete target sweep selects the exact
+    formula and an incomplete sweep selects the sampled estimator.
+    """
+
+    configured_mode: MetadataValue | None = dataset.attributes.get("sampling_mode")
+    if configured_mode is not None:
+        if not isinstance(configured_mode, str) or configured_mode not in {
+            "exact",
+            "sample",
+        }:
+            raise ValueError(
+                "dataset attribute 'sampling_mode' must be 'exact' or 'sample', "
+                f"got {configured_mode!r}"
+            )
+        mode: Literal["exact", "sample"] = (
+            "exact" if configured_mode == "exact" else "sample"
+        )
+    else:
+        expected_targets: set[int] = set(range(1 << dataset.num_qubits))
+        mode = "exact" if observed_targets == expected_targets else "sample"
+
+    if mode == "exact":
+        expected_targets = set(range(1 << dataset.num_qubits))
+        if observed_targets != expected_targets:
+            missing_targets: list[int] = sorted(expected_targets - observed_targets)
+            raise ValueError(
+                f"group {group.name!r} declares exact sampling but does not contain "
+                f"a complete target sweep; missing={missing_targets}"
+            )
+    elif len(observed_targets) < 2:
+        raise ValueError(
+            f"group {group.name!r} requires at least two distinct targets for "
+            "sampled process fidelity"
+        )
+    return mode
+
+
+def _process_fidelity(
+    probabilities: list[float],
+    sampling_mode: Literal["exact", "sample"],
+) -> float:
+    """Calculate exact or unbiased sampled process fidelity."""
+
+    num_targets: int = len(probabilities)
+    mean_sqrt: float = sum(math.sqrt(value) for value in probabilities) / num_targets
+    if sampling_mode == "exact":
+        return mean_sqrt**2
+    return (num_targets / (num_targets - 1.0)) * mean_sqrt**2 - (
+        sum(probabilities) / (num_targets * (num_targets - 1.0))
+    )
+
+
+def _completed_output_qubits(
+    group: LogicalProbabilitiesGroup,
+    num_qubits: int,
+) -> list[int]:
+    """Read and validate plot-specific completed-output prefix sizes."""
+
+    raw_stages: MetadataValue | None = group.attributes.get("completed_output_qubits")
+    if not isinstance(raw_stages, list):
+        raise ValueError(
+            f"group {group.name!r} must define the list attribute "
+            "'completed_output_qubits' for the stages plot"
+        )
+
+    stages: list[int] = []
+    value: MetadataScalar
+    for value in raw_stages:
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(
+                f"group {group.name!r} has non-integer completed-output stage {value!r}"
+            )
+        stages.append(value)
+    if stages != sorted(set(stages)):
+        raise ValueError(
+            f"group {group.name!r} completed-output stages must be unique and sorted"
+        )
+    if any(stage < 1 or stage > num_qubits for stage in stages):
+        raise ValueError(
+            f"group {group.name!r} completed-output stages must lie in 1..{num_qubits}"
+        )
+    return stages
+
+
+def build_process_fidelity_series(
+    dataset: ProbabilityExperimentDataset,
+) -> list[ProcessFidelitySeries]:
+    """Calculate per-target probabilities and process fidelity.
+
+    Repeated source files carrying the same ``k`` metadata are pooled using
+    their shot counts as weights. The dataset ``sampling_mode`` attribute
+    selects the simulation estimator. Without that attribute, complete target
+    coverage selects the exact formula and incomplete coverage selects the
+    unbiased sampled formula.
+
+    Args:
+        dataset: Normalized process-fidelity experiment data.
+
+    Returns:
+        One target-probability and aggregate series per experiment group.
+    """
+
+    _validate_process_fidelity_dataset(dataset)
+    series_list: list[ProcessFidelitySeries] = []
+    group: LogicalProbabilitiesGroup
+    for group in dataset.groups:
+        probabilities_by_target: dict[int, PooledProbabilityDistribution] = (
+            _probabilities_by_target(
+                group=group,
+                num_qubits=dataset.num_qubits,
             )
         )
+        target_values: list[int] = sorted(probabilities_by_target)
+        sampling_mode: Literal["exact", "sample"] = _sampling_mode(
+            dataset=dataset,
+            group=group,
+            observed_targets=set(target_values),
+        )
+        probabilities: list[float] = []
+        standard_errors: list[float] = []
+        target_k: int
+        for target_k in target_values:
+            distribution: PooledProbabilityDistribution = probabilities_by_target[
+                target_k
+            ]
+            probability: float = distribution.probabilities.get(target_k, 0.0)
+            probabilities.append(probability)
+            standard_errors.append(
+                math.sqrt(probability * (1.0 - probability) / distribution.num_shots)
+            )
 
-    return {m: _snap_to_integer_x(data, 2, 40) for m, data in raw_data.items()}
+        series_list.append(
+            ProcessFidelitySeries(
+                name=group.name,
+                target_k=np.asarray(target_values, dtype=np.int64),
+                target_probability=np.asarray(probabilities, dtype=np.float64),
+                target_standard_error=np.asarray(standard_errors, dtype=np.float64),
+                mean_target_probability=float(np.mean(probabilities)),
+                process_fidelity=_process_fidelity(probabilities, sampling_mode),
+                sampling_mode=sampling_mode,
+            )
+        )
+    return series_list
 
 
-def plot_result(
-    results_dir: Path | None,
-    baseline_csv: Path | None,
-    output_filename: Path,
-) -> None:
-    """Plot fidelity results from benchmark JSON files and optional baselines."""
-    if results_dir is None and baseline_csv is None:
-        raise ValueError("Either `results_dir` or `baseline_csv` must be provided.")
+def build_prefix_success_series(
+    dataset: ProbabilityExperimentDataset,
+) -> list[PrefixSuccessSeries]:
+    """Calculate mean MSB-prefix success at configured completed-output stages.
 
-    results = _load_benchmark_results(results_dir) if results_dir is not None else None
-    baseline = _load_baseline(baseline_csv) if baseline_csv is not None else None
+    Args:
+        dataset: Normalized process-fidelity experiment data.
 
+    Returns:
+        One completed-output prefix series per experiment group.
+    """
+
+    _validate_process_fidelity_dataset(dataset)
+    series_list: list[PrefixSuccessSeries] = []
+    group: LogicalProbabilitiesGroup
+    for group in dataset.groups:
+        probabilities_by_target: dict[int, PooledProbabilityDistribution] = (
+            _probabilities_by_target(
+                group=group,
+                num_qubits=dataset.num_qubits,
+            )
+        )
+        target_values: list[int] = sorted(probabilities_by_target)
+        stages: list[int] = _completed_output_qubits(
+            group=group,
+            num_qubits=dataset.num_qubits,
+        )
+        stage_means: list[float] = []
+        stage_sems: list[float] = []
+        stage: int
+        for stage in stages:
+            shift: int = dataset.num_qubits - stage
+            probabilities: list[float] = []
+            target_k: int
+            for target_k in target_values:
+                distribution: PooledProbabilityDistribution = probabilities_by_target[
+                    target_k
+                ]
+                target_prefix: int = target_k >> shift
+                success_probability: float = sum(
+                    probability
+                    for state, probability in distribution.probabilities.items()
+                    if state >> shift == target_prefix
+                )
+                probabilities.append(success_probability)
+            values: npt.NDArray[np.float64] = np.asarray(
+                probabilities, dtype=np.float64
+            )
+            stage_means.append(float(values.mean()))
+            stage_sems.append(
+                float(values.std(ddof=1) / math.sqrt(values.size))
+                if values.size > 1
+                else 0.0
+            )
+        series_list.append(
+            PrefixSuccessSeries(
+                name=group.name,
+                completed_output_qubits=np.asarray(stages, dtype=np.int64),
+                mean_success_probability=np.asarray(stage_means, dtype=np.float64),
+                target_sem=np.asarray(stage_sems, dtype=np.float64),
+            )
+        )
+    return series_list
+
+
+def plot_overview(
+    dataset: ProbabilityExperimentDataset,
+    output_path: Path,
+) -> list[ProcessFidelitySeries]:
+    """Plot overlaid target probabilities and process-fidelity bars."""
+
+    series_list: list[ProcessFidelitySeries] = build_process_fidelity_series(dataset)
     with plot_context(PLOT_CONFIG_PATH, palette="nature") as config:
         figsize: tuple[float, float] = get_latex_figsize(
             config,
             width="text",
             fraction=0.95,
-            height_ratio=0.62,
+            height_ratio=0.46,
         )
-        fig, ax = plt.subplots(figsize=figsize)
+        figure, axes = plt.subplots(
+            1,
+            2,
+            figsize=figsize,
+            width_ratios=[2.2, 1.0],
+        )
+        target_axis, summary_axis = axes
 
-        if baseline is not None:
-            for method, data in baseline.items():
-                x_list = [x for x, _ in data]
-                y_list = [y for _, y in data]
-                color: str = "C0" if method.startswith("unitary") else "C1"
-                linestyle: str = "dashed" if method.endswith("no DD") else "-"
-                ax.plot(
-                    x_list,
-                    y_list,
-                    label=method,
-                    marker="o",
-                    color=color,
-                    ls=linestyle,
+        index: int
+        series: ProcessFidelitySeries
+        for index, series in enumerate(series_list):
+            target_axis.errorbar(
+                series.target_k,
+                series.target_probability,
+                yerr=series.target_standard_error,
+                marker="o",
+                markersize=3,
+                linewidth=1,
+                capsize=2,
+                color=f"C{index}",
+                label=series.name,
+            )
+        target_axis.set_xlabel("Target $k$")
+        target_axis.set_ylabel(r"$P(\mathrm{output}=k)$")
+        target_axis.set_ylim(0.0, 1.0)
+        target_axis.legend()
+
+        positions: npt.NDArray[np.float64] = np.arange(
+            len(series_list), dtype=np.float64
+        )
+        summary_axis.bar(
+            positions,
+            [series.process_fidelity for series in series_list],
+            width=0.62,
+            color=[f"C{index}" for index in range(len(series_list))],
+        )
+        summary_axis.set_xticks(
+            positions,
+            [series.name for series in series_list],
+            rotation=20,
+            ha="right",
+        )
+        summary_axis.set_ylabel("Process fidelity")
+        summary_axis.set_ylim(0.0, 1.0)
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        figure.savefig(output_path)
+        plt.close(figure)
+    return series_list
+
+
+def plot_target_probability_panels(
+    dataset: ProbabilityExperimentDataset,
+    output_path: Path,
+    combined: bool,
+) -> list[ProcessFidelitySeries]:
+    """Reproduce the physical-team per-group target-probability panels."""
+
+    series_list: list[ProcessFidelitySeries] = build_process_fidelity_series(dataset)
+    with plot_context(PLOT_CONFIG_PATH, palette="nature") as config:
+        axes: list[plt.Axes]
+        if combined:
+            figsize: tuple[float, float] = get_latex_figsize(
+                config,
+                width="column",
+                fraction=0.95,
+                height_ratio=0.8,
+            )
+            figure, ax = plt.subplots(figsize=figsize)
+            axes = [ax] * len(series_list)
+        else:
+            figsize: tuple[float, float] = get_latex_figsize(
+                config,
+                width="column",
+                fraction=0.95,
+                height_ratio=0.30 * len(series_list),
+            )
+            figure, ax = plt.subplots(
+                len(series_list),
+                1,
+                figsize=figsize,
+                sharex=True,
+                sharey=True,
+                squeeze=False,
+            )
+            axes = ax.flatten().tolist()
+
+        for index, series in enumerate(series_list):
+            axis = axes[index]
+            axis.errorbar(
+                series.target_k,
+                series.target_probability,
+                yerr=series.target_standard_error,
+                label=series.name,
+                marker="o",
+                markersize=1,
+                linewidth=1,
+                capsize=0.5,
+                color=f"C{index}",
+            )
+            axis.set_ylabel(r"$p_k$")
+            axis.set_ylim(0.0, 1.0)
+
+            if not combined:
+                axis.set_title(
+                    f"{series.name}: process fidelity={series.process_fidelity:.4f}"
                 )
+        axes[-1].set_xlabel("Target $k$")
 
-        if results is not None:
-            for batch_size in sorted(results.keys()):
-                x = results[batch_size]["n"]
-                y = results[batch_size]["mean"]
-                yerr = results[batch_size]["std"]
-                ax.errorbar(
-                    x,
-                    y,
-                    yerr=yerr,
-                    marker="x",
-                    label=f"batch size = {batch_size}",
-                    color=f"C{batch_size + 1}",
-                )
+        if combined:
+            axes[0].legend()
 
-        ax.set_xlim(2, 12 if baseline is None else 40)
-        ax.set_ylim(0, 1)
-        ax.legend()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        figure.savefig(output_path)
+        plt.close(figure)
+    return series_list
 
-        output_filename.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(output_filename)
-        plt.close(fig)
+
+def plot_prefix_success(
+    dataset: ProbabilityExperimentDataset,
+    output_path: Path,
+) -> list[PrefixSuccessSeries]:
+    """Reproduce completed-output prefix success versus prefix size."""
+
+    series_list: list[PrefixSuccessSeries] = build_prefix_success_series(dataset)
+    with plot_context(PLOT_CONFIG_PATH, palette="nature") as config:
+        figsize: tuple[float, float] = get_latex_figsize(
+            config,
+            width="column",
+            fraction=0.95,
+            height_ratio=0.78,
+        )
+        figure, axis = plt.subplots(figsize=figsize)
+        index: int
+        series: PrefixSuccessSeries
+        for index, series in enumerate(series_list):
+            axis.errorbar(
+                series.completed_output_qubits,
+                series.mean_success_probability,
+                yerr=series.target_sem,
+                marker="o",
+                capsize=3,
+                color=f"C{index}",
+                label=series.name,
+            )
+        all_stages: list[int] = sorted(
+            {
+                int(stage)
+                for series in series_list
+                for stage in series.completed_output_qubits
+            }
+        )
+        axis.set_xticks(all_stages)
+        axis.set_xlabel("Completed logical output qubits")
+        axis.set_ylabel("Mean prefix success probability")
+        axis.set_ylim(0.0, 1.0)
+        axis.legend()
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        figure.savefig(output_path)
+        plt.close(figure)
+    return series_list
+
+
+def plot_process_fidelity_summary(
+    dataset: ProbabilityExperimentDataset,
+    output_path: Path,
+) -> list[ProcessFidelitySeries]:
+    """Plot one process-fidelity bar per experiment group."""
+
+    series_list: list[ProcessFidelitySeries] = build_process_fidelity_series(dataset)
+    with plot_context(PLOT_CONFIG_PATH, palette="nature") as config:
+        figsize: tuple[float, float] = get_latex_figsize(
+            config,
+            width="column",
+            fraction=0.95,
+            height_ratio=0.75,
+        )
+        figure, axis = plt.subplots(figsize=figsize)
+        positions: npt.NDArray[np.float64] = np.arange(
+            len(series_list), dtype=np.float64
+        )
+        bars = axis.bar(
+            positions,
+            [series.process_fidelity for series in series_list],
+            width=0.62,
+            color=[f"C{index}" for index in range(len(series_list))],
+        )
+        axis.set_xticks(positions, [series.name for series in series_list])
+        axis.set_ylabel("Process fidelity")
+        axis.set_ylim(0.0, 1.0)
+        for bar, series in zip(bars, series_list, strict=True):
+            axis.annotate(
+                f"{series.process_fidelity:.4f}",
+                xy=(bar.get_x() + bar.get_width() / 2, bar.get_height()),
+                xytext=(0, 4),
+                textcoords="offset points",
+                ha="center",
+                va="bottom",
+            )
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        figure.savefig(output_path)
+        plt.close(figure)
+    return series_list
+
+
+def _print_process_fidelity(series_list: list[ProcessFidelitySeries]) -> None:
+    """Print aggregate metrics for plotted experiment groups."""
+
+    series: ProcessFidelitySeries
+    for series in series_list:
+        print(
+            f"{series.name}: mean target probability="
+            f"{series.mean_target_probability:.6f}, "
+            f"process fidelity={series.process_fidelity:.6f} "
+            f"({series.sampling_mode})"
+        )
 
 
 @app.command()
-def main(
-    output: Annotated[Path, typer.Argument(help="Output plot file path")],
-    results_dir: Annotated[
-        Path | None, typer.Option(help="Directory of benchmark JSON files")
+def overview(
+    output_path: Annotated[Path, typer.Argument(help="Output figure path")],
+    counter_dataset: Annotated[
+        Path | None,
+        typer.Option("--counter-dataset", help="Counter ExperimentDataset JSON"),
     ] = None,
-    baseline_csv: Annotated[
-        Path | None, typer.Option(help="Baseline CSV file path")
+    probability_dataset: Annotated[
+        Path | None,
+        typer.Option("--probability-dataset", help="ProbabilityExperimentDataset JSON"),
     ] = None,
 ) -> None:
-    """Plot dynamic-QFT fidelity results."""
-    plot_result(results_dir, baseline_csv, output)
+    """Plot overlaid target probabilities and process-fidelity summary."""
+
+    series_list: list[ProcessFidelitySeries] = plot_overview(
+        dataset=_load_probabilities(counter_dataset, probability_dataset),
+        output_path=output_path,
+    )
+    _print_process_fidelity(series_list)
+
+
+@app.command()
+def targets(
+    output_path: Annotated[Path, typer.Argument(help="Output figure path")],
+    counter_dataset: Annotated[
+        Path | None,
+        typer.Option("--counter-dataset", help="Counter ExperimentDataset JSON"),
+    ] = None,
+    probability_dataset: Annotated[
+        Path | None,
+        typer.Option("--probability-dataset", help="ProbabilityExperimentDataset JSON"),
+    ] = None,
+    combined: Annotated[
+        bool, typer.Option(help="Combine all groups into one panel")
+    ] = False,
+) -> None:
+    """Plot one target-probability panel per experiment group."""
+
+    series_list: list[ProcessFidelitySeries] = plot_target_probability_panels(
+        dataset=_load_probabilities(counter_dataset, probability_dataset),
+        output_path=output_path,
+        combined=combined,
+    )
+    _print_process_fidelity(series_list)
+
+
+@app.command()
+def stages(
+    output_path: Annotated[Path, typer.Argument(help="Output figure path")],
+    counter_dataset: Annotated[
+        Path | None,
+        typer.Option("--counter-dataset", help="Counter ExperimentDataset JSON"),
+    ] = None,
+    probability_dataset: Annotated[
+        Path | None,
+        typer.Option("--probability-dataset", help="ProbabilityExperimentDataset JSON"),
+    ] = None,
+) -> None:
+    """Plot configured completed-output prefix success curves."""
+
+    plot_prefix_success(
+        dataset=_load_probabilities(counter_dataset, probability_dataset),
+        output_path=output_path,
+    )
+
+
+@app.command()
+def summary(
+    output_path: Annotated[Path, typer.Argument(help="Output figure path")],
+    counter_dataset: Annotated[
+        Path | None,
+        typer.Option("--counter-dataset", help="Counter ExperimentDataset JSON"),
+    ] = None,
+    probability_dataset: Annotated[
+        Path | None,
+        typer.Option("--probability-dataset", help="ProbabilityExperimentDataset JSON"),
+    ] = None,
+) -> None:
+    """Plot process fidelity for every experiment group."""
+
+    series_list: list[ProcessFidelitySeries] = plot_process_fidelity_summary(
+        dataset=_load_probabilities(counter_dataset, probability_dataset),
+        output_path=output_path,
+    )
+    _print_process_fidelity(series_list)
 
 
 if __name__ == "__main__":

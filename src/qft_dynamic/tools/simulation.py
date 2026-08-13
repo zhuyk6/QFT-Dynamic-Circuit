@@ -271,8 +271,15 @@ def sample_counts(
         register_name: Name of the classical register in the result payload.
 
     Returns:
-        dict[str, int]: Bitstring counts.
+        Logical integer counts from the selected classical register. Dataset,
+        group, and run semantics are intentionally assigned by the caller.
+
+    Raises:
+        ValueError: If ``num_shots`` is not positive.
     """
+
+    if num_shots <= 0:
+        raise ValueError("num_shots must be positive")
 
     result: PrimitiveResult[SamplerPubResult] = sampler.run(
         [circuit], shots=num_shots

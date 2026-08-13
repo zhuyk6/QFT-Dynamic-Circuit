@@ -1,6 +1,5 @@
 """Plot measurement-encoding benchmark results."""
 
-import json
 from pathlib import Path
 from typing import Annotated
 
@@ -8,6 +7,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import typer
 from matplotlib_config import get_latex_figsize, plot_context
+
+from qft_dynamic.experiment_data import ExperimentDataset, MetadataValue
+from qft_dynamic.tools.data_process import calc_tvd
 
 app = typer.Typer()
 PLOT_DIR: Path = Path(__file__).resolve().parent
@@ -18,13 +20,29 @@ def plot_result(
     results_filename: Path,
     savefig_filename: Path,
 ) -> None:
-    """Plot the measurement-encoding benchmark JSON as grouped bars."""
-    with open(results_filename, "r") as input_file:
-        raw_dict: dict[str, dict[str, float]] = json.load(input_file)
-    dict_tvd_batch_method = {int(k): v for k, v in raw_dict.items()}
+    """Plot TVD derived from a measurement-encoding count dataset."""
+
+    dataset: ExperimentDataset = ExperimentDataset.load(results_filename)
+    if dataset.experiment_type != "circular_state_qft":
+        raise ValueError("measurement-encoding plot requires circular_state_qft data")
+    ideal_probabilities: dict[int, float] = {
+        state << (dataset.num_qubits - 2): 0.25 for state in range(4)
+    }
+    dict_tvd_batch_method: dict[int, dict[str, float]] = {}
+    for group in dataset.groups:
+        batch_value: MetadataValue | None = group.attributes.get("batch_size")
+        method_value: MetadataValue | None = group.attributes.get("method")
+        if isinstance(batch_value, bool) or not isinstance(batch_value, int):
+            raise ValueError(f"group {group.name!r} requires integer batch_size")
+        if not isinstance(method_value, str):
+            raise ValueError(f"group {group.name!r} requires string method")
+        dict_tvd_batch_method.setdefault(batch_value, {})[method_value] = calc_tvd(
+            ideal_probabilities,
+            group.runs[0].counts,
+        )
 
     batch_sizes = sorted(dict_tvd_batch_method.keys())
-    methods = ["base", "enc perfect", "enc modify"]
+    methods = ["base", "enc_perfect", "enc_modified"]
     x = np.arange(len(batch_sizes))
     width = 0.2
 
@@ -56,7 +74,7 @@ def plot_result(
 
 @app.command()
 def main(
-    results: Annotated[Path, typer.Argument(help="Benchmark results JSON file")],
+    results: Annotated[Path, typer.Argument(help="Counter ExperimentDataset JSON")],
     output: Annotated[Path, typer.Argument(help="Output plot file path")],
 ) -> None:
     """Plot measurement-encoding benchmark results."""
